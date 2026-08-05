@@ -60,7 +60,7 @@ export async function callLlmJsonWithTrace<T>({
     throw new Error("LLM_MODE=live requires LLMOD_API_KEY and LLMOD_BASE_URL.");
   }
 
-  const result = await requestJsonFromLlm<T>(module, baseUrl, apiKey, effectivePrompt);
+  const result = await requestJsonFromLlm<T>(module, baseUrl, apiKey, effectivePrompt, mockResponse);
   const step = result.steps.at(-1) ?? null;
 
   return {
@@ -75,7 +75,8 @@ async function requestJsonFromLlm<T>(
   module: string,
   baseUrl: string,
   apiKey: string,
-  prompt: { system_prompt: string; user_prompt: string }
+  prompt: { system_prompt: string; user_prompt: string },
+  mockResponse: T
 ): Promise<{ output: T; steps: AgentStep[] }> {
   const attempts = [prompt, retryPrompt(prompt)];
   const steps: AgentStep[] = [];
@@ -127,7 +128,15 @@ async function requestJsonFromLlm<T>(
     });
   }
 
-  throw new Error(`LLM returned invalid JSON for ${module} after ${attempts.length} attempts. Raw response: ${lastContent.slice(0, 240)}`);
+  const lastStep = steps.at(-1);
+  if (lastStep && lastStep.response && typeof lastStep.response === "object" && !Array.isArray(lastStep.response)) {
+    Object.assign(lastStep.response, {
+      deterministic_fallback_used: true,
+      fallback_reason: `LLM returned invalid JSON for ${module} after ${attempts.length} attempts.`
+    });
+  }
+
+  return { output: mockResponse, steps };
 }
 
 function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
