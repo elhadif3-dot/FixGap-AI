@@ -74,6 +74,19 @@ export async function applySimulatedPageUpdate(
   decision: SupervisorDecision,
   previousDescription?: string
 ): Promise<SimulatedPageUpdate> {
+  if (decision !== "Approve") {
+    const page = await getSimulatedListingPage(listing);
+    return {
+      listingId: listing.id,
+      status: "not_executed",
+      field: null,
+      before: page.currentDescription,
+      after: page.currentDescription,
+      addedText: null,
+      reason: proposal.reason ?? `Supervisor decision was ${decision}, so the simulated page was not changed.`
+    };
+  }
+
   if (decision === "Approve" && proposal.action === "restore_previous_page") {
     const page = await getSimulatedListingPage(listing);
     const before = page.currentDescription;

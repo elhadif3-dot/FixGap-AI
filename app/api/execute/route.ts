@@ -97,10 +97,6 @@ function isRealLlmStep(step: AgentStep): boolean {
     return guardrails.live_llm_called === true;
   }
 
-  if (step.module === "Autonomous Listing Editor Agent") {
-    return response.llm_mode === undefined && response.next_action !== undefined;
-  }
-
   return false;
 }
 

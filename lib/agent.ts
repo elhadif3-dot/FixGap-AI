@@ -1121,6 +1121,10 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot execute approved proposal before listing, proposal, and Supervisor decision exist.");
       }
 
+      if (state.supervisor.decision !== "Approve") {
+        throw new Error("Cannot execute a simulated page update without Supervisor approval.");
+      }
+
       state.pageUpdate = await applySimulatedPageUpdate(
         state.listing,
         state.proposal,
@@ -3242,16 +3246,18 @@ function finalResponse(state: AgentState): string {
   }
 
   if (state.pageUpdate?.status === "not_executed") {
+    const priorEditNote = priorSimulatedEditNote(state);
     if (state.supervisor?.decision === "Approve") {
       return [
         `Approved in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
         "",
         "The approved description is already reflected in the current simulated page, so the agent did not append duplicate text or create a second identical write.",
+        priorEditNote,
         "",
         `Evidence considered: ${pageEditEvidenceSummary(state)}`,
         "",
         "No live Airbnb account was accessed. Source reviews, Google Places rows, pricing, bookings, and guest reviews remained read-only."
-      ].join("\n");
+      ].filter(Boolean).join("\n");
     }
 
     const reason =
@@ -3262,13 +3268,14 @@ function finalResponse(state: AgentState): string {
       `No new page update was executed for listing ${state.listing.id}: ${state.listing.name}.`,
       "",
       reason,
+      priorEditNote,
       "",
       state.proposal?.evidence_topics?.length
         ? `Evidence considered: ${pageEditEvidenceSummary(state)}.`
         : "The agent stopped without changing the current simulated description.",
       "",
       "No live Airbnb account was accessed. Source reviews, Google Places rows, pricing, bookings, and guest reviews remained read-only."
-    ].join("\n");
+    ].filter(Boolean).join("\n");
   }
 
   if (state.supervisor?.decision === "Revise") {
@@ -3284,6 +3291,27 @@ function finalResponse(state: AgentState): string {
   }
 
   return `No action was taken for listing ${state.listing.id}. The agent did not find enough validated evidence for a safe page update. No live Airbnb account was accessed.`;
+}
+
+function priorSimulatedEditNote(state: AgentState): string {
+  if (!state.listing) {
+    return "";
+  }
+
+  const currentDescription =
+    state.pageUpdate?.before ??
+    state.page?.currentDescription ??
+    "";
+
+  if (!currentDescription) {
+    return "";
+  }
+
+  if (normalizeTextForCoverage(currentDescription) === normalizeTextForCoverage(state.listing.description)) {
+    return "";
+  }
+
+  return "The text currently visible on the simulated page already includes prior approved demo edits; this run did not add, replace, or remove page text.";
 }
 
 function pageEditBenefit(state: AgentState): string {
