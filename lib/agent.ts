@@ -2500,7 +2500,7 @@ function polishDescriptionCopy(description: string): string {
 }
 
 function cleanupMalformedPublicDescription(description: string): string {
-  if (!/(^|\s)\d(?:\.\d)?\/5,\s*\d+\s+Google reviews/i.test(description)) {
+  if (!hasMalformedGooglePlaceFragment(description)) {
     return description;
   }
 
@@ -2509,6 +2509,10 @@ function cleanupMalformedPublicDescription(description: string): string {
     .replace(/\s+\n/g, "\n")
     .replace(/\n\s+/g, "\n")
     .trim();
+}
+
+function hasMalformedGooglePlaceFragment(description: string): boolean {
+  return /(^|\s)\d(?:\.\d)?\/5,\s*\d+\s+Google reviews/i.test(description);
 }
 
 function appendTextIfMissing(description: string, addition: string): string {
@@ -2553,6 +2557,10 @@ function coverageContinuationSentence(stats?: ReviewSearchStats): string {
 }
 
 function descriptionAlreadyCoversSignal(description: string, topic: string): boolean {
+  if (hasMalformedGooglePlaceFragment(description)) {
+    return false;
+  }
+
   const normalized = normalizeTextForCoverage(description);
   const includesAny = (patterns: string[]) => patterns.some((pattern) => normalized.includes(pattern));
 
