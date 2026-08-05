@@ -2104,6 +2104,22 @@ function draftEdit(
     .sort((a, b) => signalPriority(a) - signalPriority(b));
 
   if (editableSignals.length === 0) {
+    const cleanedDescription = cleanupMalformedPublicDescription(currentDescription);
+    if (normalizeTextForCoverage(cleanedDescription) !== normalizeTextForCoverage(currentDescription)) {
+      return {
+        action: "replace_description",
+        target_fields: ["description"],
+        listing_id: listing.id,
+        proposed_description_addition: null,
+        proposed_description_replacement: cleanedDescription,
+        evidence_topics: signals
+          .filter((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount >= 2)
+          .slice(0, 3)
+          .map((signal) => signal.topic),
+        reason: "The current simulated description already contains useful evidence-backed content, but it also includes malformed generated nearby-place text that should be cleaned."
+      };
+    }
+
     const coveredStrongSignals = signals.filter(
       (signal) =>
         signal.type !== "insufficient_evidence" &&
@@ -2480,6 +2496,18 @@ function polishDescriptionCopy(description: string): string {
     .replace(/\s+([,.])/g, "$1")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function cleanupMalformedPublicDescription(description: string): string {
+  if (!/(^|\s)\d(?:\.\d)?\/5,\s*\d+\s+Google reviews/i.test(description)) {
+    return description;
+  }
+
+  return dedupeRepeatedSentences(polishDescriptionCopy(description))
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
     .trim();
 }
 

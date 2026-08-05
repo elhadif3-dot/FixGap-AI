@@ -165,9 +165,6 @@ function preservesProtectedFacts(before: string, after: string): boolean {
 function protectedFacts(value: string): string[] {
   const facts = new Set<string>();
   const patterns = [
-    /\b\d+(?:\.\d+)?\/5\b/g,
-    /\b\d+\s+Google reviews\b/gi,
-    /\b\d+\s+Google review texts in the dataset\b/gi,
     /\babout\s+\d+(?:\.\d+)?\s+km away\b/gi,
     /\b[A-Z][A-Za-z0-9'&(). -]{2,80}\s+\(\d+(?:\.\d+)?\/5,\s+\d+\s+Google (?:reviews|review texts in the dataset)[^)]*\)/g
   ];
