@@ -158,7 +158,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     const timeoutId = window.setTimeout(() => controller.abort(), 130000);
 
     try {
-      const response = await fetch("/api/demo_execute", {
+      const response = await fetch("/api/execute", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
