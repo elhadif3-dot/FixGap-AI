@@ -1749,7 +1749,7 @@ function guestPlaceScore(place: Place): number {
 
 function formatPlaceForGuestCopy(place: Place): string {
   const rating = place.rating ? `${place.rating.toFixed(1)}/5` : "highly rated";
-  const reviews = place.numberOfReviews > 0 ? `, ${place.numberOfReviews} Google review texts in the dataset` : "";
+  const reviews = place.numberOfReviews > 0 ? `, ${place.numberOfReviews} Google reviews` : "";
   const distance = approximateDistance(place.distanceKm);
   return `${place.placeName} (${rating}${reviews}${distance})`;
 }
@@ -2462,7 +2462,7 @@ function polishDescriptionCopy(description: string): string {
   return description
     .replace(/<br\s*\/?>/gi, " ")
     .replace(/\betc\.\.\.?/gi, "and more.")
-    .replace(/\b(\d+)\s+Google reviews\b/gi, "$1 Google review texts in the dataset")
+    .replace(/\b(\d+)\s+Google review texts in the dataset\b/gi, "$1 Google reviews")
     .replace(/\ba couple of meters\b/gi, "just a few meters")
     .replace(/\bby foot\b/gi, "on foot")
     .replace(/\ball the major city charms\b/gi, "many of Lisbon's main highlights")
