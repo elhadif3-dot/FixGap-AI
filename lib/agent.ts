@@ -1061,7 +1061,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         module: "Supervisor / Control Agent",
         messages: [
           { role: "system", content: SUPERVISOR_SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify({ proposal: state.proposal, signals, guardrails }) }
+          { role: "user", content: JSON.stringify(supervisorReviewPayload(state, signals, guardrails)) }
         ],
         mockResponse: fallbackSupervisor
       });
@@ -1083,7 +1083,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         module: "Supervisor / Control Agent",
         prompt: supervisorResult.step?.prompt ?? {
           system_prompt: SUPERVISOR_SYSTEM_PROMPT,
-          user_prompt: JSON.stringify({ proposal: state.proposal, signals, guardrails })
+          user_prompt: JSON.stringify(supervisorReviewPayload(state, signals, guardrails))
         },
         response: {
           ...state.supervisor,
@@ -3119,6 +3119,25 @@ function proposalCanSkipReviewSignals(proposal: EditProposal): boolean {
     proposal.action === "restore_original_page" ||
     (proposal.action === "replace_description" && Boolean(proposal.evidence_topics?.includes("Copy polish only")))
   );
+}
+
+function supervisorReviewPayload(
+  state: AgentState,
+  signals: Signal[],
+  guardrails: unknown
+): Record<string, unknown> {
+  return {
+    proposal: state.proposal,
+    current_page_description: state.page?.currentDescription ?? null,
+    review_instruction:
+      state.proposal?.action === "replace_description"
+        ? "Compare proposed_description_replacement against current_page_description. Judge only material new or changed wording; preserved current/source text is not a new unsupported claim."
+        : "Judge the proposed page action against the supplied evidence and guardrails.",
+    nearby_context_rule:
+      "Google Places names, ratings, Google review counts, categories, and approximate distances are supported contextual facts when they come from the Google Places tool; Airbnb reviews remain the primary proof of guest/location value.",
+    signals,
+    guardrails
+  };
 }
 
 function finalResponse(state: AgentState): string {

@@ -55,6 +55,7 @@ export const SUPERVISOR_SYSTEM_PROMPT = [
   "- Public listing-page copy must stay guest-facing and persuasive. It may set audience fit, but it must not read like operational advice, maintenance notes, complaint summaries, or warnings such as 'the AC does not work' or 'check the setup before booking'.",
   "- Fixable property or operations issues belong in manager recommendations only, not in the simulated public listing description.",
   "- For replacement edits, distinguish preserved source/current-page facts from newly added claims. Do not reject an edit only because it preserves an existing source fact; reject only unsupported new claims or unsafe wording.",
+  "- When current_page_description is provided, compare it with the proposed replacement and evaluate only material new or changed wording. Existing text that is preserved from the current page is allowed unless the proposal newly worsens it.",
   "",
   "Revise only when approval requires a concrete material change: more evidence, narrower factual wording, removal of an unsupported claim, or a different target field.",
   "Block when the evidence is weak, unsafe, out of scope, live-account related, pricing-related, or unsupported.",
