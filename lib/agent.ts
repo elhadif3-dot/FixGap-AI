@@ -2286,6 +2286,19 @@ function reviseDescriptionForEvidenceBackedGaps(
 
   let revised = removeRejectedTopicText(currentDescription, rejectedTopics);
   revised = removeNonGuestFacingListingCopy(revised);
+  revised = revised
+    .replace(
+      /A great fit for guests who want to explore historic Lisbon on foot; some nearby streets are steep, so comfortable walking shoes are recommended\./gi,
+      "A great fit for guests who want to explore historic Lisbon on foot from a characterful hillside neighborhood."
+    )
+    .replace(
+      /Best suited for guests who are comfortable with stairs or stepped access, a detail previous guests mention and appreciate knowing before arrival\./gi,
+      "Best suited for guests who are comfortable with Lisbon-style walk-up access and value a characterful central stay."
+    )
+    .replace(
+      /This stay suits guests who enjoy being close to Lisbon's lively center; as in many central neighborhoods, some street activity may be part of the experience\./gi,
+      "Best for guests who want a lively central Lisbon base close to neighborhood restaurants, fado, and city energy."
+    );
   if (signals.some((signal) => signal.topic === "Noise expectations")) {
     revised = revised
       .replace(/\bvery calm area\b/gi, "central Lisbon area")
