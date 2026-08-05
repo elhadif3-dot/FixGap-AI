@@ -2463,6 +2463,7 @@ function polishDescriptionCopy(description: string): string {
     .replace(/<br\s*\/?>/gi, " ")
     .replace(/\betc\.\.\.?/gi, "and more.")
     .replace(/\b(\d+)\s+Google review texts in the dataset\b/gi, "$1 Google reviews")
+    .replace(/\s+\d(?:\.\d)?\/5,\s*\d+\s+Google reviews[^.)]*(?:\)\.?|\.?)/gi, "")
     .replace(/\ba couple of meters\b/gi, "just a few meters")
     .replace(/\bby foot\b/gi, "on foot")
     .replace(/\ball the major city charms\b/gi, "many of Lisbon's main highlights")
