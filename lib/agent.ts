@@ -3195,7 +3195,7 @@ function finalResponse(state: AgentState): string {
       reason,
       "",
       state.proposal?.evidence_topics?.length
-        ? `Evidence considered: ${state.proposal.evidence_topics.join("; ")}.`
+        ? `Evidence considered: ${pageEditEvidenceSummary(state)}.`
         : "The agent stopped without changing the current simulated description.",
       "",
       "No live Airbnb account was accessed. Source reviews, Google Places rows, pricing, bookings, and guest reviews remained read-only."
