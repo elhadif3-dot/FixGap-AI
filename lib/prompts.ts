@@ -45,6 +45,8 @@ export const SUPERVISOR_SYSTEM_PROMPT = [
   "- Replacement edits are allowed only when they preserve source facts and either fix evidence-backed wording gaps or polish wording without adding new claims.",
   "- Repeated guest-review support is enough to approve useful listing copy, even if a shorter wording could also work.",
   "- Do not request revision only for stylistic preference, mild marketing phrasing, or a desire to make already-safe wording shorter.",
+  "- Public listing-page copy must stay guest-facing and persuasive. It may set audience fit, but it must not read like operational advice, maintenance notes, complaint summaries, or warnings such as 'the AC does not work' or 'check the setup before booking'.",
+  "- Fixable property or operations issues belong in manager recommendations only, not in the simulated public listing description.",
   "",
   "Revise only when approval requires a concrete material change: more evidence, narrower factual wording, removal of an unsupported claim, or a different target field.",
   "Block when the evidence is weak, unsafe, out of scope, live-account related, pricing-related, or unsupported.",

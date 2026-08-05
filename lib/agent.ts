@@ -2174,16 +2174,16 @@ function draftEdit(
 
   const additions = selectedSignals.map((signal) => {
     if (signal.topic === "Historic Lisbon hills") {
-      return "A great fit for guests who want to explore historic Lisbon on foot; some nearby streets are steep, so comfortable walking shoes are recommended.";
+      return "A great fit for guests who want to explore historic Lisbon on foot from a characterful hillside neighborhood.";
     }
     if (signal.topic === "Access and stairs expectations") {
-      return "Best suited for guests who are comfortable with stairs or stepped access, a detail previous guests mention and appreciate knowing before arrival.";
+      return "Best suited for guests who are comfortable with Lisbon-style walk-up access and value a characterful central stay.";
     }
     if (signal.topic === "Noise expectations") {
-      return "This stay suits guests who enjoy being close to Lisbon's lively center; as in many central neighborhoods, some street activity may be part of the experience.";
+      return "Best for guests who want a lively central Lisbon base close to neighborhood restaurants, fado, and city energy.";
     }
     if (signal.topic === "Temperature expectations") {
-      return "Some guests mention cooling or fan expectations, so guests who prefer a cooler room may want to check the setup before booking.";
+      return null;
     }
     if (signal.topic === "Space expectations") {
       return "The space is best for travelers who value a smart central base over extra room, with guest reviews pointing to location and convenience as the main strengths.";
@@ -2201,7 +2201,7 @@ function draftEdit(
       return "Guests often describe the stay as comfortable, which adds useful reassurance for travelers using the property as a central Lisbon base.";
     }
     if (signal.topic === "Remote-work readiness") {
-      return "Wi-Fi is listed as an amenity, and guest feedback supports mentioning connectivity only in cautious, factual terms for travelers who may need it.";
+      return "For guests mixing travel with work, the listed Wi-Fi amenity helps position the stay as a practical Lisbon base.";
     }
     if (signal.topic === "Rated nearby guest options") {
       const places = signal.evidence.filter(isFormattedGooglePlace).slice(-3);
@@ -2212,7 +2212,7 @@ function draftEdit(
       return `Guests mention the convenience of nearby places to eat, and Google Places context supports that with highly rated nearby dining options such as ${places.join(", ")}.`;
     }
     return signal.recommendation;
-  });
+  }).filter((addition): addition is string => Boolean(addition));
 
   const proposedAddition = additions.join(" ");
   const revisedDescription = reviseDescriptionForEvidenceBackedGaps(
@@ -2285,6 +2285,7 @@ function reviseDescriptionForEvidenceBackedGaps(
   }
 
   let revised = removeRejectedTopicText(currentDescription, rejectedTopics);
+  revised = removeNonGuestFacingListingCopy(revised);
   if (signals.some((signal) => signal.topic === "Noise expectations")) {
     revised = revised
       .replace(/\bvery calm area\b/gi, "central Lisbon area")
@@ -2294,9 +2295,41 @@ function reviseDescriptionForEvidenceBackedGaps(
       .replace(/\bquiet\b/gi, "central");
   }
 
+  if (signals.some((signal) => signal.topic === "Temperature expectations")) {
+    revised = revised
+      .replace(/\bhas a good air circulation and light\b/gi, "has natural light")
+      .replace(/\bgood air circulation\b/gi, "natural light")
+      .replace(/\bwell ventilated\b/gi, "bright");
+  }
+
   revised = dedupeRepeatedSentences(polishDescriptionCopy(revised));
   revised = appendTextIfMissing(revised, proposedAddition);
   return dedupeRepeatedSentences(revised);
+}
+
+function removeNonGuestFacingListingCopy(description: string): string {
+  const paragraphs = description
+    .split(/\n{2,}/)
+    .map((paragraph) => sentenceSplit(paragraph).filter((sentence) => {
+      const normalized = normalizeTextForCoverage(sentence);
+      return !includesAnyNormalized(normalized, [
+        "may want to check the setup before booking",
+        "check the setup before booking",
+        "cooling or fan expectations",
+        "prefer a cooler room",
+        "temperature comfort appears",
+        "temperature expectations",
+        "wifi is listed as an amenity",
+        "connectivity only in cautious factual terms",
+        "guests mention wifi internet or remote work needs",
+        "recommended action",
+        "why it helps"
+      ]);
+    }).join(" "))
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return paragraphs.join("\n\n").trim() || description;
 }
 
 function removeRejectedTopicText(description: string, rejectedTopics: string[]): string {
@@ -2482,27 +2515,16 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
   const includesAny = (patterns: string[]) => patterns.some((pattern) => normalized.includes(pattern));
 
   if (topic === "Historic Lisbon hills") {
-    return includesAny(["steep", "hill", "comfortable walking shoes", "historic lisbon on foot"]);
+    return includesAny(["characterful hillside neighborhood", "historic lisbon on foot", "alfama hillside"]);
   }
   if (topic === "Access and stairs expectations") {
-    return includesAny(["comfortable with stairs", "stepped access", "stairs or stepped access", "luggage expectations"]);
+    return includesAny(["lisbon style walk up access", "lisbon-style walk-up access", "characterful central stay"]);
   }
   if (topic === "Noise expectations") {
-    return includesAny(["lively center", "street activity", "busy central", "part of the experience", "noise expectations"]);
+    return includesAny(["lively central lisbon base", "city energy", "neighborhood restaurants"]);
   }
   if (topic === "Temperature expectations") {
-    return includesAny([
-      "warmer lisbon",
-      "cooler room",
-      "cooler rooms",
-      "cooling or fan expectations",
-      "fan expectations",
-      "prefer a cooler room",
-      "temperature expectations",
-      "temperature comfort",
-      "check the setup before booking",
-      "plan accordingly"
-    ]);
+    return false;
   }
   if (topic === "Space expectations") {
     return includesAny([
@@ -2536,7 +2558,7 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
     return includesAny(["comfortable stay", "good sleep experience", "guest confirmed comfort"]);
   }
   if (topic === "Remote-work readiness") {
-    return includesAny(["remote work setup", "mixing travel with work", "wi fi work setup", "connectivity", "wi fi is listed"]);
+    return includesAny(["practical lisbon base", "travel with work", "listed wi fi amenity", "listed wifi amenity"]);
   }
   if (topic === "Rated nearby guest options" || topic === "Rated nearby dining options") {
     return includesAny([

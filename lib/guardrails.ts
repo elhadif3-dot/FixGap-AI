@@ -91,6 +91,10 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
       violations.push("insufficient_primary_evidence");
     }
 
+    if (!isCopyPolish && hasNonGuestFacingListingCopy(editText)) {
+      violations.push("non_guest_facing_listing_copy");
+    }
+
     if (
       currentDescription &&
       proposal.proposed_description_addition &&
@@ -121,6 +125,20 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     passed: violations.length === 0,
     violations
   };
+}
+
+function hasNonGuestFacingListingCopy(value: string): boolean {
+  const patterns = [
+    /\b(?:doesn'?t|does not|didn'?t|did not|not)\s+(?:work|working)\b/i,
+    /\b(?:problem|problems|issue|issues|complaint|complaints)\s+(?:with|about|around)\b/i,
+    /\bguests?\s+(?:complain|complained|mention|mentioned)\s+[^.]{0,80}\b(?:problem|issue|broken|not working|doesn'?t work)\b/i,
+    /\b(?:may want to|should)\s+check\s+(?:the\s+)?(?:setup|connection|cooling|heating|air conditioning|a\/c)\s+before booking\b/i,
+    /\bif\s+(?:this|that|it)\s+(?:bothers|concerns|matters to)\s+you\b/i,
+    /\b(?:fix|repair|maintenance|test connection|document router|router instructions)\b/i,
+    /\b(?:cooling|fan|temperature)\s+expectations\b/i
+  ];
+
+  return patterns.some((pattern) => pattern.test(value));
 }
 
 function allowsProtectedNearbyFactCleanup(before: string, after: string, state?: EvidenceState): boolean {
