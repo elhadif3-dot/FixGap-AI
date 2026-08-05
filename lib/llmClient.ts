@@ -15,6 +15,7 @@ type LlmJsonResult<T> = {
   output: T;
   calledLive: boolean;
   step: AgentStep | null;
+  steps: AgentStep[];
 };
 
 type ChatCompletionResponse = {
@@ -26,7 +27,10 @@ type ChatCompletionResponse = {
 };
 
 const DEFAULT_TEXT_MODEL = "MB5R2CF-azure/gpt-5.4-mini";
+const DEFAULT_MAX_TOKENS = 900;
 const JSON_ONLY_INSTRUCTION = "Return only valid JSON. Do not include markdown, prose, or code fences.";
+const JSON_RETRY_INSTRUCTION =
+  "The previous response was not valid JSON. Return one complete compact JSON object only. Keep string fields short and close every quote and brace.";
 
 export async function callLlmJson<T>(options: LlmJsonOptions<T>): Promise<T> {
   const result = await callLlmJsonWithTrace(options);
@@ -44,7 +48,8 @@ export async function callLlmJsonWithTrace<T>({
     return {
       output: mockResponse,
       calledLive: false,
-      step: null
+      step: null,
+      steps: []
     };
   }
 
@@ -55,19 +60,14 @@ export async function callLlmJsonWithTrace<T>({
     throw new Error("LLM_MODE=live requires LLMOD_API_KEY and LLMOD_BASE_URL.");
   }
 
-  const output = await requestJsonFromLlm<T>(module, baseUrl, apiKey, effectivePrompt);
+  const result = await requestJsonFromLlm<T>(module, baseUrl, apiKey, effectivePrompt);
+  const step = result.steps.at(-1) ?? null;
 
   return {
-    output,
+    output: result.output,
     calledLive: true,
-    step: {
-      module,
-      prompt: {
-        system_prompt: effectivePrompt.system_prompt,
-        user_prompt: effectivePrompt.user_prompt
-      },
-      response: output
-    }
+    step,
+    steps: result.steps
   };
 }
 
@@ -76,33 +76,58 @@ async function requestJsonFromLlm<T>(
   baseUrl: string,
   apiKey: string,
   prompt: { system_prompt: string; user_prompt: string }
-): Promise<T> {
-  const response = await fetch(chatCompletionsUrl(baseUrl), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(buildChatBody(prompt))
-  });
+): Promise<{ output: T; steps: AgentStep[] }> {
+  const attempts = [prompt, retryPrompt(prompt)];
+  const steps: AgentStep[] = [];
+  let lastContent = "";
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`LLM request failed for ${module}: HTTP ${response.status}. ${errorText.slice(0, 240)}`);
+  for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+    const attemptPrompt = attempts[attemptIndex];
+    const response = await fetch(chatCompletionsUrl(baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(buildChatBody(attemptPrompt))
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`LLM request failed for ${module}: HTTP ${response.status}. ${errorText.slice(0, 240)}`);
+    }
+
+    const payload = (await response.json()) as ChatCompletionResponse;
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error(`LLM returned an empty response for ${module}.`);
+    }
+
+    lastContent = content;
+    const parsed = parseJsonObject<T>(content);
+    if (parsed.ok) {
+      steps.push({
+        module,
+        prompt: attemptPrompt,
+        response: liveStepResponse(parsed.value, attemptIndex + 1)
+      });
+      return { output: parsed.value, steps };
+    }
+
+    steps.push({
+      module,
+      prompt: attemptPrompt,
+      response: {
+        llm_call: true,
+        attempt: attemptIndex + 1,
+        error: "invalid_json",
+        raw_response_preview: content.slice(0, 240),
+        retry_planned: attemptIndex < attempts.length - 1
+      }
+    });
   }
 
-  const payload = (await response.json()) as ChatCompletionResponse;
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error(`LLM returned an empty response for ${module}.`);
-  }
-
-  const parsed = parseJsonObject<T>(content);
-  if (!parsed.ok) {
-    throw new Error(`LLM returned invalid JSON for ${module}. Raw response: ${content.slice(0, 240)}`);
-  }
-
-  return parsed.value;
+  throw new Error(`LLM returned invalid JSON for ${module} after ${attempts.length} attempts. Raw response: ${lastContent.slice(0, 240)}`);
 }
 
 function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
@@ -118,7 +143,7 @@ function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
         content: prompt.user_prompt
       }
     ],
-    max_tokens: Number(process.env.LLM_MAX_TOKENS ?? 450)
+    max_tokens: Number(process.env.LLM_MAX_TOKENS ?? DEFAULT_MAX_TOKENS)
   };
 
   if (process.env.LLM_TEMPERATURE) {
@@ -130,6 +155,29 @@ function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
   }
 
   return body;
+}
+
+function retryPrompt(prompt: { system_prompt: string; user_prompt: string }): { system_prompt: string; user_prompt: string } {
+  return {
+    system_prompt: [prompt.system_prompt, JSON_RETRY_INSTRUCTION].join("\n\n"),
+    user_prompt: prompt.user_prompt
+  };
+}
+
+function liveStepResponse<T>(output: T, attempt: number): unknown {
+  if (output && typeof output === "object" && !Array.isArray(output)) {
+    return {
+      ...(output as Record<string, unknown>),
+      llm_call: true,
+      attempt
+    };
+  }
+
+  return {
+    llm_call: true,
+    attempt,
+    value: output
+  };
 }
 
 function effectivePromptParts(messages: LlmMessage[]): { system_prompt: string; user_prompt: string } {

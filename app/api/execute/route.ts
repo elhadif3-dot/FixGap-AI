@@ -88,6 +88,10 @@ function filterRealLlmSteps(steps: AgentStep[]): AgentStep[] {
 
 function isRealLlmStep(step: AgentStep): boolean {
   const response = isRecord(step.response) ? step.response : {};
+  if (response.llm_call === true) {
+    return true;
+  }
+
   if (step.module === "Supervisor / Control Agent") {
     const guardrails = isRecord(response.guardrails) ? response.guardrails : {};
     return guardrails.live_llm_called === true;

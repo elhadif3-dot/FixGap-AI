@@ -396,8 +396,8 @@ async function decideNextAction(state: AgentState, steps: AgentStep[]): Promise<
     ],
     mockResponse
   });
-  if (result.step) {
-    steps.push(result.step);
+  if (result.steps.length > 0) {
+    steps.push(...result.steps);
   }
 
   const parsed = AgentNextActionSchema.safeParse(result.output);
@@ -1065,6 +1065,9 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         ],
         mockResponse: fallbackSupervisor
       });
+      if (supervisorResult.steps.length > 1) {
+        steps.push(...supervisorResult.steps.slice(0, -1));
+      }
 
       const normalizedSupervisor = normalizeSupervisorOutput(supervisorResult.output);
       const parsedSupervisor = SupervisorOutputSchema.safeParse(normalizedSupervisor);

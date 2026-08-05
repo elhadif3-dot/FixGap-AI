@@ -47,7 +47,15 @@ export const SUPERVISOR_SYSTEM_PROMPT = [
   "- Do not request revision only for stylistic preference, mild marketing phrasing, or a desire to make already-safe wording shorter.",
   "",
   "Revise only when approval requires a concrete material change: more evidence, narrower factual wording, removal of an unsupported claim, or a different target field.",
-  "Block when the evidence is weak, unsafe, out of scope, live-account related, pricing-related, or unsupported."
+  "Block when the evidence is weak, unsafe, out of scope, live-account related, pricing-related, or unsupported.",
+  "",
+  "Return compact JSON only with this shape:",
+  "{",
+  "  \"decision\": \"Approve\" | \"Revise\" | \"Block\",",
+  "  \"rationale\": \"max 35 words\",",
+  "  \"required_change\": \"optional max 25 words\"",
+  "}",
+  "Use exactly the decision capitalization shown above."
 ].join("\n");
 
 export const RESPONSE_WRITER_SYSTEM_PROMPT = [
