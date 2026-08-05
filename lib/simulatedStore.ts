@@ -35,7 +35,7 @@ function store(): Store {
 }
 
 export async function getSimulatedListingPage(listing: Listing, currentDescriptionOverride?: string): Promise<SimulatedListingPage> {
-  if (isSupabaseConfigured() && typeof currentDescriptionOverride !== "string") {
+  if (isSupabaseConfigured()) {
     const page = await getSupabaseSimulatedPage(listing);
     if (page) {
       return page;

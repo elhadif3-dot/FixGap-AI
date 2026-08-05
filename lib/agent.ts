@@ -3151,6 +3151,18 @@ function finalResponse(state: AgentState): string {
   }
 
   if (state.pageUpdate?.status === "not_executed") {
+    if (state.supervisor?.decision === "Approve") {
+      return [
+        `Approved in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
+        "",
+        "The approved description is already reflected in the current simulated page, so the agent did not append duplicate text or create a second identical write.",
+        "",
+        `Evidence considered: ${pageEditEvidenceSummary(state)}`,
+        "",
+        "No live Airbnb account was accessed. Source reviews, Google Places rows, pricing, bookings, and guest reviews remained read-only."
+      ].join("\n");
+    }
+
     const reason =
       state.supervisor?.decision === "Block"
         ? state.supervisor.rationale
