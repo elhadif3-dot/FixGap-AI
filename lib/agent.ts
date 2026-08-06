@@ -1312,6 +1312,14 @@ function inferIntent(prompt: string): string[] {
 }
 
 function isEvidenceOnlyPrompt(prompt: string): boolean {
+  const asksForPageUpdate =
+    /\b(update|edit|improve|improvement|end to end|simulated page|listing page)\b/i.test(prompt) &&
+    !/\b(do not edit|without editing|no page edit|evidence only|only evidence|examples only)\b/i.test(prompt);
+
+  if (asksForPageUpdate) {
+    return false;
+  }
+
   return /\b(find|show|get|retrieve|bring|look for|can you find)\b.{0,45}\b(more\s+)?(evidence|evidance|avidance|proof|examples?|review signals?|guest signals?)\b/i.test(prompt) ||
     /\b(return|give|list|show)\b.{0,40}\b(review\s+)?examples?\b.{0,60}\b(do not edit|without editing|no page edit|only)\b/i.test(prompt) ||
     /\b(more\s+)?(evidence|evidance|avidance|proof|examples?)\s+(for|about|of|to)\b/i.test(prompt) ||
