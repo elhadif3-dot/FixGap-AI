@@ -580,6 +580,35 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
+  if (!needsEvidenceReport(state) && proposed.next_action === "draft_evidence_report") {
+    if (state.reviews && needsGooglePlaces(state) && !state.places) {
+      return action(
+        "get_google_places",
+        { listing_id: state.listingId, radius_km: requestedPlacesRadiusKm(state.prompt), runtime_override_from: proposed.next_action },
+        "The manager asked for an end-to-end page improvement, not an evidence-only report.",
+        "Nearby context is still missing."
+      );
+    }
+
+    if (state.reviews && (!needsGooglePlaces(state) || state.places) && !state.signals) {
+      return action(
+        "detect_guest_signals",
+        { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+        "The manager asked for an end-to-end page improvement, not an evidence-only report.",
+        "Guest signals are missing."
+      );
+    }
+
+    if (state.signals && !state.proposal) {
+      return action(
+        "draft_listing_edit",
+        { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+        "The manager asked for an end-to-end page improvement, not an evidence-only report.",
+        "No edit proposal exists."
+      );
+    }
+  }
+
   if (state.signals && !needsManagerRecommendations(state) && !needsEvidenceReport(state) && !state.proposal && proposed.next_action !== "draft_listing_edit") {
     return action(
       "draft_listing_edit",
