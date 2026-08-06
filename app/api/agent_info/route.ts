@@ -1,7 +1,7 @@
 export function GET() {
   return Response.json({
     description:
-      "FixGap AI is an autonomous demo agent for Lisbon short-term-rental managers. It compares a simulated Airbnb listing page with real guest-review evidence, uses nearby Google Places context when it can strengthen guest-facing value, and updates only allowed demo page text after Supervisor approval.",
+      "FixGap AI is an autonomous demo agent for Lisbon short-term-rental managers. It compares a simulated Airbnb listing page with real guest-review evidence, uses nearby Google Places context when it can strengthen guest-facing value, and updates only allowed demo page text after Supervisor approval. Re-running the same request continues review coverage from the previous window, so the agent can gather more evidence across the full review corpus and stop when no safe new edit remains.",
     purpose:
       "Keep Lisbon Airbnb listing pages accurate, persuasive, and aligned with real guest experience by finding review-backed gaps, surfacing valuable nearby places only when supported, and avoiding invented claims, live Airbnb access, pricing actions, booking actions, private messages, and unnecessary LLM calls.",
     prompt_template: {
