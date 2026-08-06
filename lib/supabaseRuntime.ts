@@ -236,7 +236,10 @@ function rowToAudit(row: Record<string, unknown>): AuditLogEntry {
     listingId: stringValue(row.listing_id),
     listingName: stringValue(row.listing_name),
     managerPrompt: stringValue(row.manager_prompt),
-    decision: row.decision === "Revise" || row.decision === "Block" ? row.decision : "Approve",
+    decision:
+      row.decision === "Revise" || row.decision === "Block" || row.decision === "Stop"
+        ? row.decision
+        : "Approve",
     selectedActions: arrayValue(row.selected_tools),
     evidenceSummary: row.evidence_summary ?? null,
     proposal: row.proposal ?? null,

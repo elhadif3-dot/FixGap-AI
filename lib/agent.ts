@@ -1155,7 +1155,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
 
     case "stop_without_action": {
       if (state.listing && !state.auditLog) {
-        const decision = state.supervisor?.decision ?? "Block";
+        const decision: SupervisorDecision = state.supervisor?.decision ?? "Stop";
         state.pageUpdate = await applySimulatedPageUpdate(state.listing, state.proposal ?? stopProposal(state.listing.id), decision);
         state.auditLog = await createAuditLog({
           listing: state.listing,
@@ -2030,7 +2030,7 @@ function topicsRejectedBySupervisor(
 
   if (
     proposal.evidence_topics?.includes("Remote-work readiness") &&
-    /remote|wi-?fi|internet|work setup|overreach|overstat|unsupported/.test(supervisorText)
+    /remote|wi-?fi|internet|work setup|overreach|overstat|unsupported|non.?guest.?facing|operational warning/.test(supervisorText)
   ) {
     rejected.push("Remote-work readiness");
   }
@@ -2055,7 +2055,7 @@ function topicsRejectedBySupervisor(
 
   if (
     proposal.evidence_topics?.includes("Temperature expectations") &&
-    /temperature|cooling|fan|cooler|warmer lisbon|broader claim/.test(supervisorText)
+    /temperature|cooling|fan|cooler|warmer lisbon|broader claim|non.?guest.?facing|operational warning/.test(supervisorText)
   ) {
     rejected.push("Temperature expectations");
   }

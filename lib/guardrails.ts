@@ -199,8 +199,33 @@ export function enforceGuardrails(
     return supervisor;
   }
 
+  const blockViolations = validation.violations.filter((violation) =>
+    [
+      "review_listing_mismatch",
+      "no_editable_signal",
+      "insufficient_primary_evidence",
+      "pricing",
+      "live_airbnb_access",
+      "private_messages",
+      "review_replies",
+      "unsupported_amenities",
+      "invalid_edit_target",
+      "invalid_replacement_target",
+      "invalid_restore_target"
+    ].includes(violation)
+  );
+
+  if (blockViolations.length === 0) {
+    return {
+      decision: "Revise",
+      rationale: `Revision required by runtime guardrails: ${validation.violations.join(", ")}.`,
+      required_change:
+        "Revise the proposal instead of blocking: keep the supported evidence, remove duplicate or non-guest-facing wording, preserve protected page facts, and submit a narrower guest-facing edit."
+    };
+  }
+
   return {
     decision: "Block",
-    rationale: `Blocked by guardrails: ${validation.violations.join(", ")}.`
+    rationale: `Blocked by guardrails: ${blockViolations.join(", ")}.`
   };
 }

@@ -34,23 +34,12 @@ function store(): Store {
   return globalStore.__airbnbAgentStore;
 }
 
-export async function getSimulatedListingPage(listing: Listing, currentDescriptionOverride?: string): Promise<SimulatedListingPage> {
+export async function getSimulatedListingPage(listing: Listing, _currentDescriptionOverride?: string): Promise<SimulatedListingPage> {
   if (isSupabaseConfigured()) {
     const page = await getSupabaseSimulatedPage(listing);
     if (page) {
       return page;
     }
-  }
-
-  if (typeof currentDescriptionOverride === "string") {
-    const page = {
-      listingId: listing.id,
-      currentDescription: currentDescriptionOverride,
-      previousDescription: null,
-      updatedAt: new Date().toISOString()
-    };
-    store().pages.set(listing.id, page);
-    return page;
   }
 
   const existing = store().pages.get(listing.id);

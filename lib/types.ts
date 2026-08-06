@@ -90,7 +90,7 @@ export type PortfolioUpdate = {
   results: PortfolioListingResult[];
 };
 
-export type SupervisorDecision = "Approve" | "Revise" | "Block";
+export type SupervisorDecision = "Approve" | "Revise" | "Block" | "Stop";
 
 export type ManagerRecommendation = {
   topic: string;

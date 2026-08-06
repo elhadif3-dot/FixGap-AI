@@ -33,8 +33,7 @@ export async function POST(request: Request) {
 
     const result = await withServerBudget(
       executeListingAgentWithOptions(body.prompt, {
-        currentPageDescription:
-          typeof body.current_page_description === "string" ? body.current_page_description : undefined,
+        currentPageDescription: undefined,
         previousPageDescription:
           typeof body.previous_page_description === "string" ? body.previous_page_description : undefined,
         portfolioPageDescriptions: isStringRecord(body.portfolio_page_descriptions)
