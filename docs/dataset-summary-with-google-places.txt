@@ -11,9 +11,9 @@ Total review rows included: 41077
 Google Places rows included: 3792
 Nearby places per selected listing: min=961, max=2961, avg=2164.8
 
-Output listings file: lisbon_listings_final_with_pois.csv (0.1 MB)
-Output reviews file: lisbon_reviews_final_with_pois.csv (12.1 MB)
-Output places file: lisbon_google_places_filtered.csv (15.5 MB)
+Output listings file: data/lisbon_listings_final_with_pois.csv (0.1 MB)
+Output reviews file: data/lisbon_reviews_final_with_pois.csv (12.1 MB)
+Output places file: data/lisbon_google_places_filtered.csv (15.5 MB)
 Total output CSV size: 27.7 MB
 
 Top selected listings:

@@ -6,7 +6,7 @@ This file defines the production runtime data shape. The CSV files remain seed/s
 
 ### `listings`
 
-Structured property source derived from `lisbon_listings_final_with_pois.csv`.
+Structured property source derived from `data/lisbon_listings_final_with_pois.csv`.
 
 Required columns:
 
@@ -62,7 +62,7 @@ Required columns:
 
 ### `google_places`
 
-Structured nearby context derived from `lisbon_google_places_filtered.csv`.
+Structured nearby context derived from `data/lisbon_google_places_filtered.csv`.
 
 Required columns:
 

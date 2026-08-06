@@ -7,7 +7,7 @@ _archive_not_used_for_short_rentals
 .env*
 *.log
 
-# Course/planning artifacts are kept in the repo for context, but are not needed at runtime.
+# Local course/planning artifacts are not needed in production deployments.
 הרצאות - חשוב
 *.pdf
 *.pptx

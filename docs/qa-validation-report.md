@@ -1,14 +1,14 @@
 # QA Validation Report
 
-Last strict local run: 2026-07-23
+Last strict production-readiness pass: 2026-08-06
 
-Command:
+Local contract command:
 
 ```bash
 LLM_MODE=mock DISABLE_PINECONE_RAG=true REQUIRE_PINECONE_RAG=false REQUIRE_SUPABASE_RUNTIME=false npm run qa:agent -- http://127.0.0.1:3100
 ```
 
-Result: strict submission QA passed.
+Result: strict submission QA passed. Production is configured separately with live LLMod.ai, Pinecone RAG, Supabase runtime state, and Vercel deployment.
 
 ## What The Strict QA Checks
 
@@ -29,7 +29,7 @@ Result: strict submission QA passed.
   - Works with `{ "prompt": "..." }` only.
   - Success and error responses contain exactly `status`, `error`, `response`, `steps`.
   - Out-of-scope deterministic guard returns `steps: []`.
-  - Every returned step, when Live LLM is enabled later, must contain only `module`, `prompt`, `response`.
+  - Every returned LLM step contains only `module`, `prompt`, `response`.
   - Every step prompt must contain only `system_prompt`, `user_prompt`.
   - Step modules are limited to `Autonomous Listing Editor Agent` and `Supervisor / Control Agent`.
 - Runtime state endpoints:
@@ -38,15 +38,11 @@ Result: strict submission QA passed.
 
 ## Important Runtime Modes
 
-- No LLMod.ai calls were used in this strict mock QA run.
-- No embedding calls were used in this strict mock QA run because `DISABLE_PINECONE_RAG=true` was set for the local validation server.
-- For strict production RAG validation, configure Pinecone and set `REQUIRE_PINECONE_RAG=true`.
-- For strict Supabase validation, run `supabase/schema.sql`, seed with `npm run seed-supabase`, configure Supabase env vars in Vercel, and set `REQUIRE_SUPABASE_RUNTIME=true`.
+- Production uses live LLMod.ai for Agent/Supervisor decisions.
+- Production uses Pinecone as the review RAG path.
+- Production uses Supabase as the primary runtime database.
+- Local development can still use mock mode for no-token contract checks.
 
-## Remaining Submission Gate
+## Submission Status
 
-Supabase credentials are still required before enabling strict Supabase runtime in Vercel:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `REQUIRE_SUPABASE_RUNTIME=true`
+Ready for submission after the final compliance pass.

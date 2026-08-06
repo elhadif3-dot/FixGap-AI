@@ -37,7 +37,7 @@ Expected:
 
 ## Live LLM Step Shape
 
-When `LLM_MODE=live` is enabled later, every step must have only:
+In production live mode, every returned LLM step has only:
 
 ```json
 {

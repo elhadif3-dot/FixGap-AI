@@ -19,7 +19,7 @@ FixGap AI is an autonomous AI agent that keeps simulated short-term-rental listi
 
 The system does not access a live Airbnb account, scrape websites, change prices, answer private guest messages, or edit guest reviews. Approved updates are written only to the demo listing page and are recorded in Supabase audit logs.
 
-Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs persist in Supabase, so refreshing the app does not inherently remove an approved update. The explicit `Reset Page` demo control restores listing state when needed.
+Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs are written to Supabase. For a clean product demo, a new browser session resets the selected listing page to the source dataset before the first agent run, and the explicit `Reset Page` control can restore listing state at any time.
 
 ## How It Works
 

@@ -15,6 +15,7 @@ let reviewsCache: Review[] | null = null;
 let placesCache: Place[] | null = null;
 
 const root = process.cwd();
+const dataDir = path.join(root, "data");
 
 function asNumber(value: string): number | null {
   if (!value) {
@@ -57,7 +58,7 @@ export async function getListings(limit?: number): Promise<Listing[]> {
   }
 
   if (!listingsCache) {
-    const csv = await readFile(path.join(root, "lisbon_listings_final_with_pois.csv"), "utf8");
+    const csv = await readFile(path.join(dataDir, "lisbon_listings_final_with_pois.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
     listingsCache = objects.map((row) => ({
       id: row.id,
@@ -112,7 +113,7 @@ export async function getListingById(id: string): Promise<Listing | null> {
 
 async function getAllLocalReviews(): Promise<Review[]> {
   if (!reviewsCache) {
-    const csv = await readFile(path.join(root, "lisbon_reviews_final_with_pois.csv"), "utf8");
+    const csv = await readFile(path.join(dataDir, "lisbon_reviews_final_with_pois.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
     reviewsCache = objects
       .filter((row) => row.listing_id && row.comments)
@@ -195,7 +196,7 @@ export async function getPlacesNearListing(listing: Listing, limit = 8, radiusKm
 
 async function getLocalPlaces(): Promise<Place[]> {
   if (!placesCache) {
-    const csv = await readFile(path.join(root, "lisbon_google_places_filtered.csv"), "utf8");
+    const csv = await readFile(path.join(dataDir, "lisbon_google_places_filtered.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
     placesCache = objects
       .filter((row) => row.place_name && row.lat && row.long)

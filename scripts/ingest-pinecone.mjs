@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { parseCsv, rowsToObjects } from "./csv.mjs";
 import {
@@ -23,8 +24,9 @@ const listingIds = listingIdsArg();
 const namespace = pineconeReviewNamespace();
 const indexName = pineconeReviewIndexName();
 const apiKey = requireEnv("PINECONE_API_KEY");
+const dataDir = path.join(process.cwd(), "data");
 
-const filteredRows = rowsToObjects(parseCsv(await readFile("lisbon_reviews_final_with_pois.csv", "utf8")))
+const filteredRows = rowsToObjects(parseCsv(await readFile(path.join(dataDir, "lisbon_reviews_final_with_pois.csv"), "utf8")))
   .filter((row) => row.listing_id && row.id && row.comments)
   .filter((row) => listingIds.length === 0 || listingIds.includes(row.listing_id));
 const rowsAfterOffset = filteredRows.slice(offsetArg);

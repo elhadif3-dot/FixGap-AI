@@ -5,6 +5,7 @@ import { loadLocalEnv } from "./env.mjs";
 loadLocalEnv();
 
 const root = process.cwd();
+const dataDir = path.join(root, "data");
 const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -13,7 +14,7 @@ if (!supabaseUrl || !serviceKey) {
   process.exit(1);
 }
 
-const listings = rowsToObjects(parseCsv(await readFile(path.join(root, "lisbon_listings_final_with_pois.csv"), "utf8")))
+const listings = rowsToObjects(parseCsv(await readFile(path.join(dataDir, "lisbon_listings_final_with_pois.csv"), "utf8")))
   .map((row) => ({
     id: row.id,
     name: clean(row.name),
@@ -36,7 +37,7 @@ const listings = rowsToObjects(parseCsv(await readFile(path.join(root, "lisbon_l
     nearby_places_count: numberOrNull(row.nearby_places_count) ?? 0
   }));
 
-const places = rowsToObjects(parseCsv(await readFile(path.join(root, "lisbon_google_places_filtered.csv"), "utf8")))
+const places = rowsToObjects(parseCsv(await readFile(path.join(dataDir, "lisbon_google_places_filtered.csv"), "utf8")))
   .filter((row) => row.place_name && row.lat && row.long)
   .map((row) => ({
     place_name: clean(row.place_name),
