@@ -115,6 +115,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
   const [latestAuditLog, setLatestAuditLog] = useState<AuditLogEntry | null>(null);
   const [reviewCoverageState, setReviewCoverageState] = useState<ReviewCoverageSnapshot>({});
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
+  const [sessionResetListings, setSessionResetListings] = useState<Set<string>>(() => new Set());
 
   const selectedListing = useMemo(
     () => listings.find((listing) => listing.id === selectedId),
@@ -158,6 +159,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     const timeoutId = window.setTimeout(() => controller.abort(), 130000);
 
     try {
+      await ensureListingStartsFromDataset(selectedListing);
       const response = await fetch("/api/execute", {
         method: "POST",
         headers: {
@@ -229,6 +231,29 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     setResult(null);
     setLatestAuditLog(null);
     setReviewCoverageState({});
+    setSessionResetListings((current) => new Set(current).add(selectedListing.id));
+  }
+
+  async function ensureListingStartsFromDataset(listing: DemoListing) {
+    if (sessionResetListings.has(listing.id)) {
+      return;
+    }
+
+    await fetch("/api/demo_reset", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ listing_id: listing.id, session_id: demoSessionId })
+    });
+
+    setSimulatedDescriptions((current) => ({
+      ...current,
+      [listing.id]: listing.description
+    }));
+    setLatestAuditLog(null);
+    setReviewCoverageState({});
+    setSessionResetListings((current) => new Set(current).add(listing.id));
   }
 
   async function refreshListingPage(listingId: string) {
