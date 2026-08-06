@@ -33,22 +33,22 @@ export function GET() {
       },
       {
         prompt:
-          "Selected listing id: 45855270\nFor Rossio Garden Hotel, focus only on excellent nearby places within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance. If no nearby place is strong enough, stop without editing.",
+          "Selected listing id: 45855270\nFor \"Rossio Garden Hotel\", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.",
         full_response:
-          "Approved and executed in the demo environment when strong nearby places were available. The agent added a concise nearby-place sentence with place names, Google ratings, review counts, and approximate distances.",
+          "Manager recommendations were produced without editing the simulated listing page. The agent used read-only guest reviews to identify repeated fixable property or operations issues, prioritized what the manager should improve first, and explained why each fix could improve guest satisfaction, review quality, booking confidence, or listing quality.",
         steps: [
           {
-            module: "Supervisor / Control Agent",
+            module: "Autonomous Listing Editor Agent",
             prompt: {
               system_prompt:
-                "Approve, revise, or block the proposed simulated page action. Return only valid JSON. Do not include markdown, prose, or code fences.",
+                "Choose the next autonomous action for the simulated Lisbon Airbnb listing task. Return only valid JSON. Do not include markdown, prose, or code fences.",
               user_prompt:
-                "{\"proposal\":{\"action\":\"prepare_edit_proposal\",\"target_fields\":[\"description\"],\"evidence_topics\":[\"Rated nearby guest options\"]},\"guardrails\":{\"passed\":true}}"
+                "{\"listing_id\":\"45855270\",\"request\":\"Do not edit the page. Use guest reviews to identify fixable property or operations issues and explain what to improve first.\",\"state\":{\"listing_loaded\":true,\"review_evidence_loaded\":true,\"guest_signals_detected\":true,\"page_edit_requested\":false}}"
             },
             response: {
-              decision: "Approve",
-              rationale: "The edit is narrow and includes rating, review count, category, and approximate distance.",
-              required_change: null
+              next_action: "draft_manager_recommendations",
+              short_rationale: "The user asked for manager-facing improvement advice, not a page edit.",
+              should_stop: false
             }
           }
         ]
