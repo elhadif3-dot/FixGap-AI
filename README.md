@@ -26,15 +26,17 @@ Instead of following a fixed workflow, the agent chooses actions dynamically. It
 
 Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs are written to Supabase. For a clean product demo, a new browser session resets the selected listing page to the source dataset before the first agent run, and the explicit `Reset Page` control can restore listing state at any time.
 
-## What It Does
+## &#128161; What It Does
 
-- 🔎 **Improves listing copy end to end** by comparing the simulated page against guest-review evidence and nearby context.
-- 🧭 **Finds review-backed gaps** such as stairs, compact rooms, noise expectations, temperature comfort, cleanliness, views, location strengths, or nearby value.
-- 📍 **Highlights strong nearby places** when Google Places provides useful support such as rating, Google review count, category, and approximate distance.
-- 🛠️ **Recommends property fixes** from repeated guest complaints without editing the public listing text.
-- 🛑 **Stops autonomously** when the next edit is weak, redundant, unsafe, or not supported by enough evidence.
+- &#128269; **Improves listing copy end to end** by comparing the simulated page against guest-review evidence and nearby context, then updating only the fields that are safe and useful to improve.
+- &#129517; **Finds review-backed expectation gaps** such as stairs, compact rooms, noise, temperature comfort, cleanliness, views, location strengths, walkability, and nearby value.
+- &#128205; **Turns nearby context into guest-facing value** when Google Places provides strong supporting facts such as place name, rating, Google review count, category, and approximate distance.
+- &#128736; **Recommends property and operations fixes** from repeated guest complaints, helping the manager decide what to improve first without changing the public listing text.
+- &#128221; **Polishes existing listing language** when the user asks for copy improvement only, preserving current facts while making the page sound clearer and more natural.
+- &#8617; **Restores previous versions** when the manager dislikes a simulated edit, keeping the demo workflow easy to inspect and reverse.
+- &#128721; **Stops autonomously** when the next edit is weak, redundant, unsafe, or not supported by enough evidence.
 
-## How It Works
+## &#9881; How It Works
 
 The main agent follows a ReAct-style loop:
 
@@ -46,17 +48,17 @@ Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop
 
 `Supervisor / Control Agent` reviews proposed page updates before execution. It can approve, revise, or block an action, so the agent can complete end-to-end tasks while keeping edits narrow, evidence-backed, and inside the simulated page boundary.
 
-### Progressive Review Coverage
+### &#128200; Progressive Review Coverage
 
 Some Lisbon listings include hundreds or thousands of guest-review texts. FixGap AI does not blindly push every review into one prompt. It retrieves focused evidence windows, updates its state, and decides whether the current evidence is enough for a useful edit.
 
 If the same end-to-end request is run again in the same demo session, the agent continues from the next review-coverage window instead of reusing only the same sample. This allows it to discover additional gaps over repeated runs, while still stopping when the current page already covers the strongest supported topics or when no safe new edit remains.
 
-## Architecture
+## &#127970; Architecture
 
 ![FixGap AI model architecture](public/model-architecture.png)
 
-## Data & Evidence
+## &#128202; Data & Evidence
 
 - **50 final Lisbon listings** selected for richer Airbnb review coverage and nearby-place context.
 - **Airbnb guest reviews** are the primary evidence source and are retrieved through Pinecone RAG.
@@ -64,7 +66,7 @@ If the same end-to-end request is run again in the same demo session, the agent 
 - **Listing page state and audit logs** persist in Supabase during production runtime.
 - **Supervisor-approved edits** are recorded with an audit trail so each visible page change can be traced back to an autonomous decision.
 
-## Production Stack
+## &#128640; Production Stack
 
 Production runs with live LLMod.ai decision calls for the Agent and Supervisor modules.
 
@@ -78,7 +80,7 @@ Production runs with live LLMod.ai decision calls for the Agent and Supervisor m
 | Vector database | Pinecone |
 | Deployment | Vercel |
 
-## Required Project API
+## &#128279; Required Project API
 
 ```text
 GET  /api/team_info
@@ -119,11 +121,11 @@ Error response:
 
 `steps` contains the real LLM calls executed by the agent in order, as required by the course API specification. Each step includes the module name, the effective prompt sent to the model, and the parsed model response.
 
-## Safety & Scope
+## &#128737; Safety & Scope
 
 FixGap AI is intentionally scoped to a simulated listing-management environment. It does not access a live Airbnb account, scrape websites, change prices or bookings, respond to private messages, or edit guest reviews. Updates occur only in the simulated demo listing page, and unsupported amenities or invented claims are blocked before execution.
 
-## Local Development
+## &#128187; Local Development
 
 ```bash
 npm install
