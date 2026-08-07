@@ -27,7 +27,7 @@ type ChatCompletionResponse = {
 };
 
 const DEFAULT_TEXT_MODEL = "MB5R2CF-azure/gpt-5.4-mini";
-const DEFAULT_MAX_TOKENS = 2000;
+const DEFAULT_MAX_TOKENS = "infinite";
 const JSON_ONLY_INSTRUCTION = "Return only valid JSON. Do not include markdown, prose, or code fences.";
 const JSON_RETRY_INSTRUCTION =
   "The previous response was not valid JSON. Return one complete compact JSON object only. Keep string fields short and close every quote and brace.";
@@ -151,9 +151,13 @@ function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
         role: "user",
         content: prompt.user_prompt
       }
-    ],
-    max_tokens: Number(process.env.LLM_MAX_TOKENS ?? DEFAULT_MAX_TOKENS)
+    ]
   };
+
+  const maxTokens = maxTokensFromEnv();
+  if (maxTokens !== null) {
+    body.max_tokens = maxTokens;
+  }
 
   if (process.env.LLM_TEMPERATURE) {
     body.temperature = Number(process.env.LLM_TEMPERATURE);
@@ -164,6 +168,18 @@ function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
   }
 
   return body;
+}
+
+function maxTokensFromEnv(): number | null {
+  const rawValue = process.env.LLM_MAX_TOKENS ?? DEFAULT_MAX_TOKENS;
+  const normalized = String(rawValue).trim().toLowerCase();
+
+  if (!normalized || normalized === "infinite" || normalized === "none" || normalized === "unlimited") {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function retryPrompt(prompt: { system_prompt: string; user_prompt: string }): { system_prompt: string; user_prompt: string } {
