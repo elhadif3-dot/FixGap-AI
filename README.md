@@ -18,13 +18,21 @@
 
 **Autonomous Lisbon Airbnb Listing Editor**
 
-FixGap AI is an autonomous AI agent that keeps simulated short-term-rental listing pages aligned with real guest experience. It helps a Lisbon property manager detect gaps between the current listing page, Airbnb guest reviews, and nearby Google Places context, then safely update only the allowed simulated listing-page text.
+FixGap AI is an autonomous AI agent that helps Lisbon short-term-rental managers keep simulated Airbnb listing pages aligned with what guests actually experience. It reads the current listing page, searches Airbnb guest-review evidence, uses nearby Google Places context when useful, and decides whether a page improvement is justified.
 
-The system does not access a live Airbnb account, scrape websites, change prices, answer private guest messages, or edit guest reviews. Approved updates are written only to the demo listing page and are recorded in Supabase audit logs.
+Instead of following a fixed workflow, the agent chooses actions dynamically. It may search more reviews, inspect nearby places, draft a safer listing edit, recommend property fixes, polish existing copy, restore a previous version, or stop without editing when evidence is not strong enough.
 
-🎬 Watch the [demo video](https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing) for a quick walkthrough of how to use the agent and inspect its execution trace.
+&#127916; Watch the [demo video](https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing) for a quick walkthrough of how to use the agent, run end-to-end improvements, and inspect its execution trace.
 
 Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs are written to Supabase. For a clean product demo, a new browser session resets the selected listing page to the source dataset before the first agent run, and the explicit `Reset Page` control can restore listing state at any time.
+
+## What It Does
+
+- 🔎 **Improves listing copy end to end** by comparing the simulated page against guest-review evidence and nearby context.
+- 🧭 **Finds review-backed gaps** such as stairs, compact rooms, noise expectations, temperature comfort, cleanliness, views, location strengths, or nearby value.
+- 📍 **Highlights strong nearby places** when Google Places provides useful support such as rating, Google review count, category, and approximate distance.
+- 🛠️ **Recommends property fixes** from repeated guest complaints without editing the public listing text.
+- 🛑 **Stops autonomously** when the next edit is weak, redundant, unsafe, or not supported by enough evidence.
 
 ## How It Works
 
@@ -38,6 +46,12 @@ Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop
 
 `Supervisor / Control Agent` reviews proposed page updates before execution. It can approve, revise, or block an action, so the agent can complete end-to-end tasks while keeping edits narrow, evidence-backed, and inside the simulated page boundary.
 
+### Progressive Review Coverage
+
+Some Lisbon listings include hundreds or thousands of guest-review texts. FixGap AI does not blindly push every review into one prompt. It retrieves focused evidence windows, updates its state, and decides whether the current evidence is enough for a useful edit.
+
+If the same end-to-end request is run again in the same demo session, the agent continues from the next review-coverage window instead of reusing only the same sample. This allows it to discover additional gaps over repeated runs, while still stopping when the current page already covers the strongest supported topics or when no safe new edit remains.
+
 ## Architecture
 
 ![FixGap AI model architecture](public/model-architecture.png)
@@ -48,6 +62,7 @@ Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop
 - **Airbnb guest reviews** are the primary evidence source and are retrieved through Pinecone RAG.
 - **Google Places** provides supporting environmental context such as nearby place names, ratings, review counts, categories, and approximate distance.
 - **Listing page state and audit logs** persist in Supabase during production runtime.
+- **Supervisor-approved edits** are recorded with an audit trail so each visible page change can be traced back to an autonomous decision.
 
 ## Production Stack
 
@@ -106,13 +121,7 @@ Error response:
 
 ## Safety & Scope
 
-- No live Airbnb account access.
-- No scraping or live guest-review ingestion.
-- No price, booking, availability, or payment changes.
-- No private-message or review-response automation.
-- No editing of source CSV rows, guest reviews, Google Places source rows, or booking data.
-- No unsupported facts, amenities, or claims.
-- Updates occur only in the simulated demo listing page.
+FixGap AI is intentionally scoped to a simulated listing-management environment. It does not access a live Airbnb account, scrape websites, change prices or bookings, respond to private messages, or edit guest reviews. Updates occur only in the simulated demo listing page, and unsupported amenities or invented claims are blocked before execution.
 
 ## Local Development
 
