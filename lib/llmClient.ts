@@ -27,7 +27,7 @@ type ChatCompletionResponse = {
 };
 
 const DEFAULT_TEXT_MODEL = "MB5R2CF-azure/gpt-5.4-mini";
-const DEFAULT_MAX_TOKENS = 1200;
+const DEFAULT_MAX_TOKENS = 2000;
 const JSON_ONLY_INSTRUCTION = "Return only valid JSON. Do not include markdown, prose, or code fences.";
 const JSON_RETRY_INSTRUCTION =
   "The previous response was not valid JSON. Return one complete compact JSON object only. Keep string fields short and close every quote and brace.";
