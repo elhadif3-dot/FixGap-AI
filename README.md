@@ -1,6 +1,9 @@
 ![FixGap AI banner](public/fixgap-readme-banner.svg)
 
 <p align="center">
+  <a href="https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing">
+    <img alt="Demo Video" src="https://img.shields.io/badge/DEMO%20VIDEO-FF385C?style=for-the-badge">
+  </a>
   <img alt="Vercel" src="https://img.shields.io/badge/VERCEL-111827?style=for-the-badge&amp;logo=vercel&amp;logoColor=white">
   <img alt="ReAct Agent" src="https://img.shields.io/badge/REACT%20AGENT-FF385C?style=for-the-badge">
   <img alt="LLMod.ai" src="https://img.shields.io/badge/LLMOD.AI-7C3AED?style=for-the-badge">
@@ -19,11 +22,7 @@ FixGap AI is an autonomous AI agent that keeps simulated short-term-rental listi
 
 The system does not access a live Airbnb account, scrape websites, change prices, answer private guest messages, or edit guest reviews. Approved updates are written only to the demo listing page and are recorded in Supabase audit logs.
 
-<p align="center">
-  <a href="https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing">
-    <img alt="Watch the How to Use video" src="https://img.shields.io/badge/WATCH%20HOW%20TO%20USE%20VIDEO-FF385C?style=for-the-badge">
-  </a>
-</p>
+🎬 Watch the [demo video](https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing) for a quick walkthrough of how to use the agent and inspect its execution trace.
 
 Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs are written to Supabase. For a clean product demo, a new browser session resets the selected listing page to the source dataset before the first agent run, and the explicit `Reset Page` control can restore listing state at any time.
 
