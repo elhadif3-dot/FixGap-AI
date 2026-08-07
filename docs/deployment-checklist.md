@@ -52,7 +52,7 @@ Recommended production values:
 ```bash
 LLM_MODE=live
 LLM_LIVE_MODULES=agent,supervisor
-LLM_MAX_TOKENS=450
+LLM_MAX_TOKENS=infinite
 PINECONE_REVIEW_INDEX=airbnb-reviews
 PINECONE_REVIEW_NAMESPACE=airbnb-reviews
 ```
