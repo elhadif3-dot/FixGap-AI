@@ -71,6 +71,11 @@ const defaultPrompt =
 function promptExamples(listingName: string) {
   return [
     {
+      label: "Find property fixes",
+      hint: "Recommend fixes from guest complaints",
+      prompt: `For "${listingName}", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.`
+    },
+    {
       label: "Improve end to end",
       hint: "Find review gaps, edit the page, explain why",
       prompt: `Hi, I manage several Airbnb listings in Lisbon. Please handle "${listingName}" end to end: compare the current page with guest reviews first, use nearby context only when useful, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.`
@@ -89,11 +94,6 @@ function promptExamples(listingName: string) {
       label: "Polish listing",
       hint: "Rewrite current text, preserve facts",
       prompt: `For "${listingName}", do not search reviews and do not use Google Places. Polish only the current simulated description so it reads more natural, persuasive, and guest-facing. Preserve all existing facts, place names, ratings, Google review counts, distances, amenities, and evidence-backed notes.`
-    },
-    {
-      label: "Find property fixes",
-      hint: "Recommend fixes from guest complaints",
-      prompt: `For "${listingName}", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.`
     },
     {
       label: "Undo last page edit",
