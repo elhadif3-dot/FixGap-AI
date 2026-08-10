@@ -1,9 +1,7 @@
 ![FixGap AI banner](public/fixgap-readme-banner.svg)
 
 <p align="center">
-  <a href="https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing">
-    <img alt="Demo Video" src="https://img.shields.io/badge/DEMO%20VIDEO-FF385C?style=for-the-badge">
-  </a>
+  <img alt="Demo Video" src="https://img.shields.io/badge/DEMO%20VIDEO-FF385C?style=for-the-badge">
   <img alt="Vercel" src="https://img.shields.io/badge/VERCEL-111827?style=for-the-badge&amp;logo=vercel&amp;logoColor=white">
   <img alt="ReAct Agent" src="https://img.shields.io/badge/REACT%20AGENT-FF385C?style=for-the-badge">
   <img alt="LLMod.ai" src="https://img.shields.io/badge/LLMOD.AI-7C3AED?style=for-the-badge">
