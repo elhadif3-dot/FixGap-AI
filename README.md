@@ -1,15 +1,15 @@
 ![FixGap AI banner](public/fixgap-readme-banner.svg)
 
 <p align="center">
-  <img alt="Demo Video" src="https://img.shields.io/badge/DEMO%20VIDEO-FF385C?style=for-the-badge">
-  <img alt="Vercel" src="https://img.shields.io/badge/VERCEL-111827?style=for-the-badge&amp;logo=vercel&amp;logoColor=white">
-  <img alt="ReAct Agent" src="https://img.shields.io/badge/REACT%20AGENT-FF385C?style=for-the-badge">
-  <img alt="LLMod.ai" src="https://img.shields.io/badge/LLMOD.AI-7C3AED?style=for-the-badge">
-  <img alt="GPT 5.4 Mini" src="https://img.shields.io/badge/GPT--5.4--MINI-2563EB?style=for-the-badge">
-  <img alt="Supabase" src="https://img.shields.io/badge/SUPABASE-16A34A?style=for-the-badge&amp;logo=supabase&amp;logoColor=white">
-  <img alt="Pinecone" src="https://img.shields.io/badge/PINECONE-0F766E?style=for-the-badge">
-  <img alt="Next.js" src="https://img.shields.io/badge/NEXT.JS-111827?style=for-the-badge&amp;logo=nextdotjs&amp;logoColor=white">
-  <img alt="TypeScript" src="https://img.shields.io/badge/TYPESCRIPT-3178C6?style=for-the-badge&amp;logo=typescript&amp;logoColor=white">
+  <kbd>DEMO VIDEO</kbd>
+  <kbd>VERCEL</kbd>
+  <kbd>REACT AGENT</kbd>
+  <kbd>LLMOD.AI</kbd>
+  <kbd>GPT-5.4-MINI</kbd>
+  <kbd>SUPABASE</kbd>
+  <kbd>PINECONE</kbd>
+  <kbd>NEXT.JS</kbd>
+  <kbd>TYPESCRIPT</kbd>
 </p>
 
 # FixGap AI
