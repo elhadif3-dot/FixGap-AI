@@ -794,6 +794,115 @@ button {
   font-size: 14px;
 }
 
+.conversationHistory {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+  box-shadow: none;
+}
+
+.conversationHistory h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.conversationHistory > p {
+  margin: 5px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.conversationList {
+  display: grid;
+  gap: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-color: #9ca3af #f3f4f6;
+  scrollbar-width: thin;
+}
+
+.conversationList::-webkit-scrollbar {
+  width: 7px;
+}
+
+.conversationList::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 999px;
+}
+
+.conversationList::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+  border-radius: 999px;
+}
+
+.conversationItem {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 10px;
+  box-shadow: none;
+}
+
+.conversationMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conversationMeta strong {
+  color: var(--ink);
+}
+
+.conversationItem p {
+  margin: 8px 0 0;
+  color: #333;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  scrollbar-color: #cbd5e1 #f8fafc;
+  scrollbar-width: thin;
+}
+
+.conversationItem p::-webkit-scrollbar {
+  width: 6px;
+}
+
+.conversationItem p::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 999px;
+}
+
+.conversationItem p::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.conversationItem button {
+  margin-top: 9px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.conversationItem button:hover {
+  border-color: #9ca3af;
+  background: #f9fafb;
+}
+
 .result {
   display: grid;
   gap: 0;

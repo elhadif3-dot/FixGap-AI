@@ -57,6 +57,16 @@ type TraceSummary = {
   status?: string;
 };
 
+type ConversationHistoryEntry = {
+  id: string;
+  listingName: string;
+  prompt: string;
+  response: string;
+  status: "ok" | "error";
+  outcome: string;
+  createdAt: string;
+};
+
 function createDemoSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -116,6 +126,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
   const [reviewCoverageState, setReviewCoverageState] = useState<ReviewCoverageSnapshot>({});
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
   const [sessionResetListings, setSessionResetListings] = useState<Set<string>>(() => new Set());
+  const [conversationHistory, setConversationHistory] = useState<ConversationHistoryEntry[]>([]);
 
   const selectedListing = useMemo(
     () => listings.find((listing) => listing.id === selectedId),
@@ -154,6 +165,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
 
     setIsRunning(true);
     setResult(null);
+    const submittedPrompt = prompt;
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 130000);
@@ -185,6 +197,16 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       }))) as ExecuteResponse;
 
       setResult(payload);
+      const historyEntry: ConversationHistoryEntry = {
+        id: `${Date.now()}-${selectedListing.id}`,
+        listingName: selectedListing.name,
+        prompt: submittedPrompt,
+        response: payload.response ?? payload.error ?? "No response returned.",
+        status: payload.status,
+        outcome: payload.page_update?.status ?? (payload.portfolio_update ? "portfolio" : payload.status),
+        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      };
+      setConversationHistory((current) => [historyEntry, ...current].slice(0, 10));
       if (payload.review_coverage_state) {
         setReviewCoverageState(payload.review_coverage_state);
       }
@@ -192,7 +214,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       await refreshLatestAuditLog(selectedListing.id);
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
-      setResult({
+      const errorResult: ExecuteResponse = {
         status: "error",
         error: timedOut
           ? "The agent request took more than 130 seconds and was stopped in the demo UI. Try a narrower single-listing request or reduce the requested evidence radius."
@@ -204,7 +226,18 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         page_update: null,
         portfolio_update: null,
         audit_log: null
-      });
+      };
+      setResult(errorResult);
+      const historyEntry: ConversationHistoryEntry = {
+        id: `${Date.now()}-${selectedListing.id}`,
+        listingName: selectedListing.name,
+        prompt: submittedPrompt,
+        response: errorResult.error ?? "The agent request failed.",
+        status: "error",
+        outcome: "error",
+        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      };
+      setConversationHistory((current) => [historyEntry, ...current].slice(0, 10));
     } finally {
       window.clearTimeout(timeoutId);
       setIsRunning(false);
@@ -404,6 +437,8 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
               result={result}
               auditLog={latestAuditLog}
               examples={examples}
+              conversationHistory={conversationHistory}
+              onUseHistoryPrompt={setPrompt}
             />
             <ReservationCard listing={selectedListing} />
           </aside>
@@ -457,7 +492,9 @@ function AgentFeatureBar({
   isRunning,
   result,
   auditLog,
-  examples
+  examples,
+  conversationHistory,
+  onUseHistoryPrompt
 }: {
   prompt: string;
   setPrompt: (value: string) => void;
@@ -467,6 +504,8 @@ function AgentFeatureBar({
   result: ExecuteResponse | null;
   auditLog: AuditLogEntry | null;
   examples: ReturnType<typeof promptExamples>;
+  conversationHistory: ConversationHistoryEntry[];
+  onUseHistoryPrompt: (value: string) => void;
 }) {
   return (
     <section className="agentDock">
@@ -534,6 +573,32 @@ function AgentFeatureBar({
       ) : (
         <AgentResult result={result} auditLog={auditLog} />
       )}
+
+      {conversationHistory.length > 0 ? (
+        <div className="conversationHistory">
+          <h4>Conversation History</h4>
+          <p>Recent user prompts and final agent responses for follow-up work.</p>
+          <div className="conversationList">
+            {conversationHistory.map((entry) => (
+              <article className="conversationItem" key={entry.id}>
+                <div className="conversationMeta">
+                  <strong>{entry.listingName}</strong>
+                  <span>{entry.createdAt} | {entry.outcome}</span>
+                </div>
+                <p>
+                  <b>User:</b> {entry.prompt}
+                </p>
+                <p>
+                  <b>Agent:</b> {entry.response}
+                </p>
+                <button type="button" onClick={() => onUseHistoryPrompt(entry.prompt)}>
+                  Use prompt again
+                </button>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
