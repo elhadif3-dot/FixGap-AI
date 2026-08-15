@@ -52,13 +52,15 @@ Some Lisbon listings include hundreds or thousands of guest-review texts. FixGap
 
 If the same end-to-end request is run again in the same demo session, the agent continues from the next review-coverage window instead of reusing only the same sample. This allows it to discover additional gaps over repeated runs, while still stopping when the current page already covers the strongest supported topics or when no safe new edit remains.
 
+This design also keeps the agent efficient: FixGap AI avoids sending the full review corpus into a single LLM prompt, retrieves focused evidence windows through RAG, keeps prompts compact, and uses LLM calls only for reasoning, action selection, drafting, and supervision steps that require model judgment.
+
 ## &#127970; Architecture
 
 ![FixGap AI model architecture](public/model-architecture.png)
 
 ## &#128202; Data & Evidence
 
-- **50 final Lisbon listings** selected for richer Airbnb review coverage and nearby-place context.
+- **Compact selected Lisbon subset**: the production demo uses 50 Lisbon listings with richer Airbnb review coverage and nearby-place context, derived from the larger Lisbon Airbnb source dataset.
 - **Airbnb guest reviews** are the primary evidence source and are retrieved through Pinecone RAG.
 - **Google Places** provides supporting environmental context such as nearby place names, ratings, review counts, categories, and approximate distance.
 - **Listing page state and audit logs** persist in Supabase during production runtime.
