@@ -270,11 +270,46 @@ function extractJsonObject(value: string): string | null {
   const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1] ?? value;
   const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
 
-  if (start === -1 || end === -1 || end <= start) {
+  if (start === -1) {
     return null;
   }
 
-  return candidate.slice(start, end + 1);
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < candidate.length; index += 1) {
+    const char = candidate[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = inString;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return candidate.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
 }

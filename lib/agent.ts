@@ -1811,6 +1811,165 @@ function approximateDistance(distanceKm?: number): string {
   return `, about ${Math.round(distanceKm)} km away`;
 }
 
+const sharedNegativeNoiseContext = [
+  /\b(?:very|too|really|quite|bit|a little|pretty)?\s*noisy\b/i,
+  /\b(?:very|too|really|quite|bit|a little|pretty)?\s*loud\b/i,
+  /\bstreet noise\b/i,
+  /\btraffic noise\b/i,
+  /\bconstruction noise\b/i,
+  /\bthin walls?\b/i,
+  /\bnoise (?:from|at|during|outside|all night)\b/i,
+  /\b(?:bar|bars|nightclub|nightlife).{0,45}\b(?:noise|loud|noisy|sleep)\b/i,
+  /\b(?:hard|difficult|couldn.?t|cannot) sleep.{0,50}\b(?:noise|loud|noisy)\b/i
+];
+
+const sharedNegativeNoiseExclusions = [
+  /\bno (?:issues? with )?(?:street )?noise\b/i,
+  /\bnot noisy\b/i,
+  /\bquiet\b/i,
+  /\b0 disturbances\b/i
+];
+
+const negativeAccessContext = [
+  /\bsteep (?:stairs|steps|walk|hill|hills)\b/i,
+  /\b(?:many|several|multiple|four|three|two|\d+) flights? of stairs\b/i,
+  /\bno (?:elevator|lift)\b/i,
+  /\bwithout (?:an )?(?:elevator|lift)\b/i,
+  /\bwalk[- ]?up\b/i,
+  /\b(?:stairs|steps).{0,50}\b(?:luggage|suitcase|difficult|hard|challenging|tough)\b/i,
+  /\b(?:climb|climbing).{0,35}\b(?:stairs|steps|hill|hills)\b/i
+];
+
+const positiveAccessExclusions = [
+  /\bhas (?:an )?(?:elevator|lift)\b/i,
+  /\belevator worked\b/i,
+  /\blift worked\b/i,
+  /\bnot (?:a )?problem\b/i,
+  /\bdidn.?t mind\b/i
+];
+
+const positiveCleanlinessContext = [
+  /\bspotless(?:ly)?\b/i,
+  /\bsparkling clean\b/i,
+  /\b(?:very|really|super|extremely|impeccably) clean\b/i,
+  /\bclean and (?:tidy|comfortable|well kept|modern)\b/i,
+  /\bwell kept\b/i,
+  /\btidy\b/i
+];
+
+const negativeCleanlinessContext = [
+  /\bnot clean\b/i,
+  /\bdirty\b/i,
+  /\bunclean\b/i,
+  /\bdusty?\b/i,
+  /\bstain(?:ed|s)?\b/i,
+  /\bhair(?:s)?\b/i,
+  /\bmold|mould\b/i,
+  /\bmusty smell\b/i,
+  /\bbad smell\b/i,
+  /\bodou?r\b/i
+];
+
+const positiveComfortContext = [
+  /\bcomfortable (?:bed|mattress|room|stay|sleep)\b/i,
+  /\bcomfy (?:bed|mattress|room)\b/i,
+  /\bbed (?:was|is|were|felt) (?:very |really |super )?(?:comfortable|comfy)\b/i,
+  /\bslept (?:well|great)\b/i,
+  /\bgood sleep\b/i
+];
+
+const negativeComfortContext = [
+  /\buncomfortable (?:bed|mattress|pillow|sofa|sleep)\b/i,
+  /\b(?:hard|soft|bad|poor) (?:bed|mattress|pillow)\b/i,
+  /\bbed .{0,35}(?:uncomfortable|too hard|too soft)\b/i,
+  /\bdifficult to sleep\b/i
+];
+
+const positiveWifiContext = [
+  /\b(?:fast|strong|reliable|excellent|great|good) (?:wi-?fi|wifi|internet|connection)\b/i,
+  /\b(?:wi-?fi|wifi|internet|connection).{0,35}\b(?:fast|strong|reliable|excellent|great|good|worked well)\b/i,
+  /\b(?:video calls?|zoom|remote work|work remotely).{0,60}\b(?:worked|good|fine|reliable)\b/i
+];
+
+const negativeWifiContext = [
+  /\b(?:slow|weak|poor|bad|spotty|unstable|unreliable) (?:wi-?fi|wifi|internet|connection)\b/i,
+  /\b(?:wi-?fi|wifi|internet|connection).{0,45}\b(?:slow|weak|poor|bad|spotty|unstable|unreliable|hit or miss|didn.?t work|doesn.?t work|not work)\b/i,
+  /\bno (?:wi-?fi|wifi|internet)\b/i
+];
+
+const negativeTemperatureContext = [
+  /\btoo (?:hot|warm|cold)\b/i,
+  /\b(?:very|really|extremely) (?:hot|cold)\b/i,
+  /\b(?:air conditioning|a\/c|\bac\b).{0,45}\b(?:didn.?t work|doesn.?t work|not work|broken|poor|weak|noisy)\b/i,
+  /\bno (?:air conditioning|a\/c|\bac\b|heating|heater)\b/i,
+  /\b(?:heating|heater).{0,45}\b(?:didn.?t work|doesn.?t work|not work|broken|poor)\b/i,
+  /\bpoor ventilation\b/i
+];
+
+const positiveTemperatureExclusions = [
+  /\b(?:air conditioning|a\/c|\bac\b).{0,35}\b(?:worked great|worked well|great|good)\b/i,
+  /\bcomfortable temperature\b/i,
+  /\bwell ventilated\b/i
+];
+
+const negativeSpaceContext = [
+  /\b(?:very|really|extremely|too|quite)?\s*(?:small|tiny|cramped)\b/i,
+  /\bnot (?:much|enough) (?:space|room)\b/i,
+  /\bno space\b/i,
+  /\bbarely (?:fits|fit)\b/i,
+  /\bsmaller than expected\b/i,
+  /\bpictures?.{0,45}\b(?:deceiving|misleading)\b/i
+];
+
+const positiveSpaceExclusions = [
+  /\bspacious\b/i,
+  /\blarge\b/i,
+  /\bplenty of space\b/i,
+  /\bbig enough\b/i
+];
+
+const positiveLocationContext = [
+  /\b(?:excellent|great|perfect|amazing|prime|fantastic|ideal) location\b/i,
+  /\bcentral location\b/i,
+  /\bheart of (?:lisbon|the city)\b/i,
+  /\bwalk(?:able|ing distance)\b/i,
+  /\bclose to (?:metro|train|tram|restaurants?|shops?|attractions?|sights?|center|centre)\b/i,
+  /\bnear (?:metro|train|tram|restaurants?|shops?|attractions?|sights?|center|centre)\b/i,
+  /\beasy to get (?:around|to)\b/i
+];
+
+const positiveViewContext = [
+  /\b(?:great|amazing|beautiful|stunning|wonderful|incredible|lovely|perfect) views?\b/i,
+  /\bviews? (?:was|were|is|are) (?:great|amazing|beautiful|stunning|wonderful|incredible|lovely)\b/i,
+  /\b(?:river|city|courtyard|street|balcony|terrace) view\b/i,
+  /\bbalcony overlooking\b/i
+];
+
+const negativeViewExclusions = [
+  /\bno view\b/i,
+  /\bnot much (?:of a )?view\b/i,
+  /\bview .{0,35}(?:blocked|obstructed|disappointing)\b/i
+];
+
+const nearbyReviewContext = [
+  /\bnearby (?:restaurants?|cafes?|bars?|shops?|attractions?|places)\b/i,
+  /\bclose to (?:restaurants?|cafes?|bars?|shops?|attractions?|places)\b/i,
+  /\bwalking distance to (?:restaurants?|cafes?|bars?|shops?|attractions?|places)\b/i,
+  /\bplenty of (?:restaurants?|cafes?|bars?|shops?)\b/i,
+  /\bsurrounded by (?:restaurants?|cafes?|bars?|shops?)\b/i
+];
+
+function reviewEvidence(reviews: Review[], include: RegExp[], exclude: RegExp[] = []): string[] {
+  return reviews
+    .filter((review) => include.some((pattern) => pattern.test(review.comments)))
+    .filter((review) => !exclude.some((pattern) => pattern.test(review.comments)))
+    .map((review) => excerpt(review.comments));
+}
+
+function reviewTextHasMeaning(reviewText: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(reviewText));
+}
+
 function detectSignals(
   listing: Listing,
   currentDescription: string,
@@ -1823,10 +1982,13 @@ function detectSignals(
   const description = currentDescription.toLowerCase();
   const hasBroadIntent = intent.includes("review_alignment");
 
-  if (intent.includes("hills") || (hasBroadIntent && (reviewText.includes("hill") || reviewText.includes("steep")))) {
-    const evidence = reviews
-      .filter((review) => /hill|steep|walk up|climb/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("hills") || (hasBroadIntent && reviewTextHasMeaning(reviewText, [/\bhill|hills|steep|walk[- ]?up|climb/i]))) {
+    const evidence = reviewEvidence(reviews, [
+      /\bsteep (?:street|streets|walk|hill|hills)\b/i,
+      /\b(?:uphill|hilly)\b/i,
+      /\b(?:climb|climbing).{0,35}\b(?:hill|hills|streets?)\b/i,
+      /\bwalk[- ]?up\b/i
+    ], positiveAccessExclusions);
     if (evidence.length >= 2 && !description.includes("hill") && !description.includes("steep")) {
       signals.push({
         type: "accuracy_gap",
@@ -1839,10 +2001,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("stairs") || (hasBroadIntent && (reviewText.includes("stairs") || reviewText.includes("steps")))) {
-    const evidence = reviews
-      .filter((review) => /stairs|steps|elevator|lift/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("stairs") || (hasBroadIntent && reviewTextHasMeaning(reviewText, negativeAccessContext))) {
+    const evidence = reviewEvidence(reviews, negativeAccessContext, positiveAccessExclusions);
     if (evidence.length >= 2 && !description.includes("stairs") && !description.includes("steps") && !description.includes("elevator")) {
       signals.push({
         type: "accuracy_gap",
@@ -1855,11 +2015,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("noise") || (hasBroadIntent && /\b(noise|noisy|loud|nightlife|bar|bars)\b/i.test(reviewText))) {
-    const evidence = reviews
-      .filter((review) => /\b(noisy|loud|nightlife|bar|bars)\b|busy street|weekend nights/i.test(review.comments))
-      .filter((review) => !/\b(no issues with noise|not noisy|very quiet|quiet stay)\b/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("noise") || (hasBroadIntent && reviewTextHasMeaning(reviewText, sharedNegativeNoiseContext))) {
+    const evidence = reviewEvidence(reviews, sharedNegativeNoiseContext, sharedNegativeNoiseExclusions);
     if (evidence.length >= 2 && (description.includes("quiet") || hasBroadIntent)) {
       signals.push({
         type: "accuracy_gap",
@@ -1872,10 +2029,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("temperature") || (hasBroadIntent && /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c/i.test(reviewText))) {
-    const evidence = reviews
-      .filter((review) => /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c|\bac\b/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("temperature") || (hasBroadIntent && reviewTextHasMeaning(reviewText, negativeTemperatureContext))) {
+    const evidence = reviewEvidence(reviews, negativeTemperatureContext, positiveTemperatureExclusions);
     if (
       evidence.length >= 2 &&
       !description.includes("hot") &&
@@ -1893,10 +2048,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("space") || (hasBroadIntent && /small|tiny|compact|cramped/i.test(reviewText))) {
-    const evidence = reviews
-      .filter((review) => /small|tiny|compact|cramped/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("space") || (hasBroadIntent && reviewTextHasMeaning(reviewText, negativeSpaceContext))) {
+    const evidence = reviewEvidence(reviews, negativeSpaceContext, positiveSpaceExclusions);
     if (evidence.length >= 2 && !description.includes("compact") && !description.includes("small")) {
       signals.push({
         type: "accuracy_gap",
@@ -1910,9 +2063,7 @@ function detectSignals(
   }
 
   if (intent.includes("location") || hasBroadIntent) {
-    const evidence = reviews
-      .filter((review) => /location|walk|walking|metro|tram|central|close|near/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+    const evidence = reviewEvidence(reviews, positiveLocationContext);
     if (evidence.length >= 3 && !description.includes("guests often mention") && !description.includes("guest location note")) {
       signals.push({
         type: "guest_experience_detail",
@@ -1925,10 +2076,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("view") || (hasBroadIntent && /view|views|river|terrace|balcony/i.test(reviewText))) {
-    const evidence = reviews
-      .filter((review) => /view|views|river|terrace|balcony/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("view") || (hasBroadIntent && reviewTextHasMeaning(reviewText, positiveViewContext))) {
+    const evidence = reviewEvidence(reviews, positiveViewContext, negativeViewExclusions);
     if (evidence.length >= 2 && !description.includes("guest view note") && !description.includes("guests mention the view")) {
       signals.push({
         type: "guest_experience_detail",
@@ -1941,10 +2090,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("cleanliness") || (hasBroadIntent && /clean|spotless/i.test(reviewText))) {
-    const evidence = reviews
-      .filter((review) => /clean|spotless|well kept|tidy/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("cleanliness") || (hasBroadIntent && reviewTextHasMeaning(reviewText, positiveCleanlinessContext))) {
+    const evidence = reviewEvidence(reviews, positiveCleanlinessContext, negativeCleanlinessContext);
     if (evidence.length >= 3 && !description.includes("guest cleanliness note") && !description.includes("guests repeatedly describe")) {
       signals.push({
         type: "guest_experience_detail",
@@ -1957,10 +2104,8 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("comfort") || (hasBroadIntent && /comfortable|comfy|bed/i.test(reviewText))) {
-    const evidence = reviews
-      .filter((review) => /comfortable|comfy|bed|sleep/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+  if (intent.includes("comfort") || (hasBroadIntent && reviewTextHasMeaning(reviewText, positiveComfortContext))) {
+    const evidence = reviewEvidence(reviews, positiveComfortContext, negativeComfortContext);
     if (evidence.length >= 3 && !description.includes("guest comfort note") && !description.includes("comfortable stay")) {
       signals.push({
         type: "guest_experience_detail",
@@ -1974,11 +2119,9 @@ function detectSignals(
   }
 
   if (intent.includes("wifi") || (hasBroadIntent && (reviewText.includes("wifi") || reviewText.includes("internet")))) {
-    const evidence = reviews
-      .filter((review) => /wifi|wi-fi|internet|remote|work/i.test(review.comments))
-      .map((review) => excerpt(review.comments));
+    const evidence = reviewEvidence(reviews, positiveWifiContext, negativeWifiContext);
     const hasWifiAmenity = listing.amenities.some((amenity) => amenity.toLowerCase().includes("wifi"));
-    if (evidence.length >= 2 && hasWifiAmenity) {
+    if (evidence.length >= 3 && hasWifiAmenity) {
       signals.push({
         type: "positive_highlight",
         topic: "Remote-work readiness",
@@ -1992,7 +2135,7 @@ function detectSignals(
 
   if ((intent.includes("nearby_highlights") || hasBroadIntent) && places.length >= 2 && !description.includes("nearby highlights")) {
     const topPlaces = places.slice(0, 3);
-    const reviewSupport = reviews.filter((review) => /nearby|restaurant|park|cafe|attraction|location/i.test(review.comments));
+    const reviewSupport = reviews.filter((review) => nearbyReviewContext.some((pattern) => pattern.test(review.comments)));
     if (reviewSupport.length >= 2) {
       signals.push({
         type: "positive_highlight",
@@ -2010,7 +2153,7 @@ function detectSignals(
       .filter((place) => /Dining|restaurant|food|cafe|seafood|pizza|bar/i.test(`${place.category} ${place.placeName}`))
       .filter((place) => (place.rating ?? 0) >= 4.5 && place.numberOfReviews >= 30)
       .slice(0, 3);
-    const diningReviewSupport = reviews.filter((review) => /restaurant|restaurants|cafe|cafes|eating|food|bar|bars/i.test(review.comments));
+    const diningReviewSupport = reviews.filter((review) => nearbyReviewContext.some((pattern) => pattern.test(review.comments)));
     if (diningPlaces.length >= 1 && diningReviewSupport.length >= 2) {
       signals.push({
         type: "positive_highlight",
@@ -2831,7 +2974,7 @@ function draftManagerRecommendations(
       "Temperature comfort",
       "high",
       reviews,
-      /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c|\bac\b/i,
+      /\btoo (?:hot|warm|cold)\b|(?:air conditioning|a\/c|\bac\b).{0,45}\b(?:didn.?t work|doesn.?t work|not work|broken|poor|weak|noisy)\b|no (?:air conditioning|a\/c|\bac\b|heating|heater)\b|(?:heating|heater).{0,45}\b(?:didn.?t work|doesn.?t work|not work|broken|poor)\b|poor ventilation/i,
       "Guests mention temperature comfort.",
       "Check cooling/heating, ventilation, and simple comfort items such as an extra fan or clearer seasonal instructions.",
       "Reducing temperature discomfort can improve sleep quality, review scores, and guest satisfaction."
@@ -2840,7 +2983,7 @@ function draftManagerRecommendations(
       "Access and stairs",
       "medium",
       reviews,
-      /stairs|steps|elevator|lift|climb/i,
+      /steep (?:stairs|steps|walk|hill|hills)|(?:many|several|multiple|four|three|two|\d+) flights? of stairs|no (?:elevator|lift)|without (?:an )?(?:elevator|lift)|walk[- ]?up|(?:stairs|steps).{0,50}\b(?:luggage|suitcase|difficult|hard|challenging|tough)|(?:climb|climbing).{0,35}\b(?:stairs|steps|hill|hills)/i,
       "Guests mention stairs, stepped access, elevator availability, or luggage handling.",
       "Improve pre-arrival access instructions, highlight luggage expectations, and consider practical support such as clearer check-in guidance.",
       "Clearer access handling reduces surprise on arrival and helps guests self-select before booking.",
@@ -2850,7 +2993,7 @@ function draftManagerRecommendations(
       "Noise management",
       "medium",
       reviews,
-      /\b(noisy|loud|nightlife|bar|bars)\b|busy street|weekend nights/i,
+      /\b(?:very|too|really|quite|bit|a little|pretty)?\s*noisy\b|\b(?:very|too|really|quite|bit|a little|pretty)?\s*loud\b|street noise|traffic noise|construction noise|thin walls?|noise (?:from|at|during|outside|all night)|(?:bar|bars|nightclub|nightlife).{0,45}\b(?:noise|loud|noisy|sleep)|(?:hard|difficult|couldn.?t|cannot) sleep.{0,50}\b(?:noise|loud|noisy)/i,
       "Guests mention noise or active street conditions.",
       "Consider better window sealing, earplugs, quiet-hours guidance, or clearer expectation-setting in the page description.",
       "Better noise management lowers expectation mismatch and can prevent avoidable negative reviews."
@@ -2859,7 +3002,7 @@ function draftManagerRecommendations(
       "Wi-Fi reliability",
       "high",
       reviews,
-      /wifi|wi-fi|internet|connection|remote work/i,
+      /(?:slow|weak|poor|bad|spotty|unstable|unreliable) (?:wi-?fi|wifi|internet|connection)|(?:wi-?fi|wifi|internet|connection).{0,45}\b(?:slow|weak|poor|bad|spotty|unstable|unreliable|hit or miss|didn.?t work|doesn.?t work|not work)|no (?:wi-?fi|wifi|internet)/i,
       "Guests mention Wi-Fi, internet, or remote-work needs.",
       "Test connection reliability, document router instructions, and make the workspace setup clear if the amenity is offered.",
       "Reliable connectivity is a high-value factor for business travelers and longer stays."
@@ -2877,7 +3020,7 @@ function draftManagerRecommendations(
       "Sleep comfort",
       "medium",
       reviews,
-      /uncomfortable|hard bed|soft bed|mattress|pillow|sleep/i,
+      /uncomfortable (?:bed|mattress|pillow|sofa|sleep)|(?:hard|soft|bad|poor) (?:bed|mattress|pillow)|bed .{0,35}(?:uncomfortable|too hard|too soft)|difficult to sleep/i,
       "Guests mention bed or sleep comfort.",
       "Inspect mattress, pillows, linens, and light/noise conditions that affect sleep.",
       "Better sleep experience improves perceived value and repeat-booking potential."
@@ -2886,7 +3029,7 @@ function draftManagerRecommendations(
       "Space expectations",
       "low",
       reviews,
-      /small|tiny|compact|cramped/i,
+      /(?:very|really|extremely|too|quite)?\s*(?:small|tiny|cramped)|not (?:much|enough) (?:space|room)|no space|barely (?:fits|fit)|smaller than expected|pictures?.{0,45}\b(?:deceiving|misleading)/i,
       "Guests describe the space as compact.",
       "Improve storage, declutter visible areas, and keep page wording clear about efficient space usage.",
       "Matching expectations reduces disappointment while preserving the property's location value.",
@@ -3534,12 +3677,47 @@ function summarizeState(state: AgentState): string {
       : null,
     has_google_places_context: Boolean(state.relevantPlaces),
     has_signals: Boolean(state.signals),
+    signal_brief: state.signals && state.page
+      ? compactSignalBrief(state.signals, state.page.currentDescription)
+      : null,
     has_proposal: Boolean(state.proposal),
     supervisor_decision: state.supervisor?.decision,
     revise_count: state.reviseCount,
     runtime_observations: state.observations,
     terminal_reason: state.stopReason
   });
+}
+
+function compactSignalBrief(signals: Signal[], currentDescription: string): Array<Record<string, unknown>> {
+  return signals
+    .filter((signal) => signal.type !== "insufficient_evidence")
+    .sort((a, b) => signalPriority(a) - signalPriority(b))
+    .slice(0, 5)
+    .map((signal) => ({
+      topic: signal.topic,
+      type: signal.type,
+      evidence_count: signal.evidenceCount,
+      primary_review_evidence_count: signal.primaryEvidenceCount,
+      already_covered_in_description: descriptionAlreadyCoversSignal(currentDescription, signal.topic),
+      suggested_use: suggestedUseForSignal(signal),
+      representative_evidence: signal.evidence.slice(0, 3).map((item) => excerpt(item, 150)),
+      recommendation: signal.recommendation
+    }));
+}
+
+function suggestedUseForSignal(signal: Signal): "positive_public_copy" | "expectation_setting" | "manager_only" | "stop" {
+  if (signal.type === "accuracy_gap") {
+    if (signal.topic === "Temperature expectations") {
+      return "manager_only";
+    }
+    return "expectation_setting";
+  }
+
+  if (signal.type === "positive_highlight" || signal.type === "guest_experience_detail") {
+    return "positive_public_copy";
+  }
+
+  return "stop";
 }
 
 function auditEvidenceSummary(state: AgentState): Record<string, unknown> {

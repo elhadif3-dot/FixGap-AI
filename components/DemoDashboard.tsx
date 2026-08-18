@@ -138,9 +138,16 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     [selectedListing?.name]
   );
 
+  function updatePrompt(value: string) {
+    setPrompt(value);
+    setResult(null);
+    setLatestAuditLog(null);
+  }
+
   async function selectListing(id: string) {
     setSelectedId(id);
     setResult(null);
+    setLatestAuditLog(null);
 
     if (listings.some((listing) => listing.id === id)) {
       return;
@@ -165,7 +172,9 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
 
     setIsRunning(true);
     setResult(null);
+    setLatestAuditLog(null);
     const submittedPrompt = prompt;
+    const runStartedAt = new Date();
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 130000);
@@ -181,7 +190,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         body: JSON.stringify({
           prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
           current_page_description: currentDescription,
-          review_coverage_state: reviewCoverageState,
+          ...(Object.keys(reviewCoverageState).length > 0 ? { review_coverage_state: reviewCoverageState } : {}),
           session_id: demoSessionId
         })
       });
@@ -210,8 +219,13 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       if (payload.review_coverage_state) {
         setReviewCoverageState(payload.review_coverage_state);
       }
+      setLatestAuditLog(
+        payload.audit_log && auditMatchesRun(payload.audit_log, selectedListing.id, submittedPrompt, runStartedAt)
+          ? payload.audit_log
+          : null
+      );
       await refreshListingPage(selectedListing.id);
-      await refreshLatestAuditLog(selectedListing.id);
+      await refreshLatestAuditLog(selectedListing.id, submittedPrompt, runStartedAt);
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
       const errorResult: ExecuteResponse = {
@@ -303,14 +317,17 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     }
   }
 
-  async function refreshLatestAuditLog(listingId: string) {
+  async function refreshLatestAuditLog(listingId: string, submittedPrompt?: string, runStartedAt?: Date) {
     const response = await fetch(`/api/audit_logs?listing_id=${encodeURIComponent(listingId)}`);
     const payload = (await response.json().catch(() => null)) as
       | { status: string; audit_logs?: AuditLogEntry[] }
       | null;
 
     if (payload?.status === "ok") {
-      setLatestAuditLog(payload.audit_logs?.[0] ?? null);
+      const audit = payload.audit_logs?.find((item) =>
+        submittedPrompt && runStartedAt ? auditMatchesRun(item, listingId, submittedPrompt, runStartedAt) : true
+      );
+      setLatestAuditLog(audit ?? null);
     }
   }
 
@@ -430,7 +447,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
           <aside className="sideRail">
             <AgentFeatureBar
               prompt={prompt}
-              setPrompt={setPrompt}
+              setPrompt={updatePrompt}
               runAgent={runAgent}
               resetPage={resetPage}
               isRunning={isRunning}
@@ -438,7 +455,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
               auditLog={latestAuditLog}
               examples={examples}
               conversationHistory={conversationHistory}
-              onUseHistoryPrompt={setPrompt}
+              onUseHistoryPrompt={updatePrompt}
             />
             <ReservationCard listing={selectedListing} />
           </aside>
@@ -964,6 +981,29 @@ function getEvidenceTopics(proposal: unknown): string[] {
   return value.evidence_topics.filter((topic): topic is string => typeof topic === "string");
 }
 
+function auditMatchesRun(audit: AuditLogEntry, listingId: string, submittedPrompt: string, runStartedAt: Date): boolean {
+  if (audit.listingId !== listingId) {
+    return false;
+  }
+
+  const createdAt = Date.parse(audit.createdAt);
+  if (!Number.isFinite(createdAt) || createdAt + 1000 < runStartedAt.getTime()) {
+    return false;
+  }
+
+  const normalizedAuditPrompt = normalizePromptForRunMatch(audit.managerPrompt);
+  const normalizedSubmittedPrompt = normalizePromptForRunMatch(submittedPrompt);
+  return normalizedAuditPrompt.includes(normalizedSubmittedPrompt);
+}
+
+function normalizePromptForRunMatch(value: string): string {
+  return value
+    .replace(/^selected listing id:\s*\d+\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function extractWhyLine(response: string): string {
   const match = response.match(/Why this improves the page:\s*([^\n]+)/i);
   if (match?.[1]) {
@@ -983,13 +1023,15 @@ function extractWhyLine(response: string): string {
 
 function summarizeTraceStep(step: AgentStep): TraceSummary {
   const response = isRecord(step.response) ? step.response : {};
+  const nestedResponse = isRecord(response.response) ? response.response : {};
+  const actionFromResponse = stringValue(response.next_action) ?? stringValue(nestedResponse.next_action);
 
-  if (typeof response.next_action === "string") {
+  if (actionFromResponse) {
     return {
-      title: labelFromSnake(response.next_action),
-      action: response.next_action,
-      rationale: stringValue(response.short_rationale),
-      observation: stringValue(response.state_update)
+      title: `LLM chose ${labelFromSnake(actionFromResponse)}`,
+      action: actionFromResponse,
+      rationale: stringValue(response.short_rationale) ?? stringValue(nestedResponse.short_rationale),
+      observation: stringValue(response.state_update) ?? stringValue(nestedResponse.state_update)
     };
   }
 
@@ -1144,6 +1186,20 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     return {
       title: "Stopped without page edit",
       observation: "The agent wrote an audit log and left the simulated listing page unchanged."
+    };
+  }
+
+  if (response.llm_call === true || nestedResponse.llm_call === true) {
+    const error = stringValue(response.error) ?? stringValue(nestedResponse.error);
+    const retryPlanned = response.retry_planned === true || nestedResponse.retry_planned === true;
+    return {
+      title: error ? `LLM ${labelFromSnake(error)}` : "LLM decision step",
+      status: retryPlanned ? "retry planned" : undefined,
+      rationale: stringValue(response.short_rationale) ?? stringValue(nestedResponse.short_rationale),
+      observation:
+        stringValue(response.state_update) ??
+        stringValue(nestedResponse.state_update) ??
+        "The model reviewed the current state and returned a decision payload."
     };
   }
 
