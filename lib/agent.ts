@@ -8,14 +8,17 @@ import {
 } from "@/lib/data";
 import { enforceGuardrails, validateProposal } from "@/lib/guardrails";
 import { callLlmJsonWithTrace } from "@/lib/llmClient";
-import { LISTING_EDITOR_SYSTEM_PROMPT, SUPERVISOR_SYSTEM_PROMPT } from "@/lib/prompts";
+import { getManagerInsights, mergeManagerInsights } from "@/lib/managerInsightStore";
+import { EVIDENCE_REASONING_SYSTEM_PROMPT, LISTING_EDITOR_SYSTEM_PROMPT, SUPERVISOR_SYSTEM_PROMPT } from "@/lib/prompts";
 import { classifyPromptScope } from "@/lib/requestScope";
 import {
   AgentNextActionSchema,
   EditProposalSchema,
+  EvidenceReasoningDecisionSchema,
   SupervisorOutputSchema,
   type AgentNextAction,
   type EditProposal,
+  type EvidenceReasoningDecision,
   type SupervisorOutput
 } from "@/lib/schemas";
 import {
@@ -118,6 +121,8 @@ const topicKeywords: Record<string, string[]> = {
   temperature: ["hot", "warm", "cold", "air conditioning", "a/c", "ac", "heating"],
   view: ["view", "views", "river", "terrace", "balcony"],
   space: ["small", "tiny", "compact", "cramped"],
+  service: ["staff", "front desk", "reception", "service", "helpful", "friendly", "check-in", "check in", "luggage", "value"],
+  property_quality: ["renovated", "refurbished", "modern", "new", "newly renovated", "quality", "facilities", "amenities", "well equipped"],
   property_fixes: ["fix", "repair", "maintenance", "issue", "issues", "problem", "complaint", "bothering", "improve the property", "quality", "income", "revenue"],
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"],
@@ -473,6 +478,10 @@ function shouldUseLlmForDecision(state: AgentState): boolean {
     return false;
   }
 
+  if (state.signals && !needsManagerRecommendations(state) && !needsEvidenceReport(state) && !state.proposal) {
+    return false;
+  }
+
   if (state.proposal && !state.supervisor) {
     return false;
   }
@@ -750,6 +759,17 @@ function chooseNextAction(state: AgentState): AgentNextAction {
     return action("stop_without_action", {}, "The copy-polish request reached a terminal state.", "Stop execution.", true);
   }
 
+  if (!state.reviews && completedReviewCoverageSnapshotForCurrentScope(state)) {
+    state.proposal = stopProposal(state.listing.id, completedReviewCoverageStopReason(state));
+    return action(
+      "stop_without_action",
+      { listing_id: state.listingId, review_coverage_complete: true },
+      "The agent already covered every review text for this audit scope, so no new review window or LLM evidence pass is needed.",
+      "All review evidence for this scope was already covered.",
+      true
+    );
+  }
+
   if (!state.reviews) {
     return action("search_reviews", reviewSearchToolInput(state), "Guest reviews are the primary evidence source.", "Review evidence is missing.");
   }
@@ -965,16 +985,14 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot draft an edit before signals are detected.");
       }
 
-      const proposal = EditProposalSchema.parse(
-        draftEdit(
-          state.listing,
-          state.signals,
-          state.page?.currentDescription ?? state.listing.description,
-          state.reviewSearchStats,
-          state.intent,
-          state.rejectedTopics ?? []
-        )
-      );
+      const proposalDraft = await draftEditWithEvidenceReasoning(state, steps);
+      if (!proposalDraft) {
+        return true;
+      }
+      const proposal = EditProposalSchema.parse(proposalDraft);
+      if (!proposal) {
+        return true;
+      }
       state.proposal = proposal;
       steps.push(step("Edit & Decision Tools", "Draft a narrow page edit, ask for more evidence, or stop.", JSON.stringify(actionRequest.tool_input), {
         proposed_action: proposal,
@@ -1005,7 +1023,11 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot draft manager recommendations before listing reviews and guest signals are available.");
       }
 
-      state.managerRecommendations = draftManagerRecommendations(state.listing, state.reviews, state.signals);
+      const recommendations = await draftManagerRecommendationsWithEvidenceReasoning(state, steps);
+      if (!recommendations) {
+        return true;
+      }
+      state.managerRecommendations = recommendations;
       steps.push(step("Manager Insight Tools", "Draft property improvement recommendations from read-only guest reviews.", JSON.stringify(actionRequest.tool_input), {
         listing_id: state.listing.id,
         recommendations: state.managerRecommendations,
@@ -1298,6 +1320,8 @@ function inferIntent(prompt: string): string[] {
         "temperature",
         "view",
         "space",
+        "service",
+        "property_quality",
         ...(reviewOnly ? ["review_only"] : ["nearby_highlights"]),
         ...topics
       ])
@@ -1308,7 +1332,7 @@ function inferIntent(prompt: string): string[] {
     return topics;
   }
 
-  return ["review_alignment", "location", "hills", "stairs", "noise", "wifi", "comfort", "temperature", "view"];
+  return ["review_alignment", "location", "hills", "stairs", "noise", "wifi", "comfort", "temperature", "view", "service", "property_quality"];
 }
 
 function isEvidenceOnlyPrompt(prompt: string): boolean {
@@ -1614,9 +1638,10 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
     return {
       strategy: "adaptive_time_boxed_end_to_end_alignment",
       focuses: [
-        focus("repeated guest experience signals", "Find repeated guest experience signals across location, noise, access, temperature, comfort, cleanliness, Wi-Fi, view, and space."),
+        focus("repeated guest experience signals", "Find repeated guest experience signals across location, noise, access, temperature, comfort, cleanliness, Wi-Fi, view, space, and property quality."),
         focus("expectation mismatches", "Find comments that show mismatch between listing expectations and guest reality, especially noise, stairs, hills, heat, room size, Wi-Fi, or comfort."),
-        focus("guest-confirmed strengths", "Find repeated positive strengths that should improve listing copy: location, walkability, cleanliness, view, comfort, and convenience."),
+        focus("guest-confirmed strengths", "Find repeated positive strengths that should improve listing copy: location, walkability, cleanliness, view, comfort, renovated or modern rooms, quality facilities, staff helpfulness, smooth check-in, luggage support, value, and convenience."),
+        focus("service and arrival strengths", "Find guest praise about front desk staff, reception, check-in, luggage storage, hospitality, helpful service, and good value."),
         focus("nearby and location support", "Find review support for nearby restaurants, attractions, cafes, transit, parks, and walkable Lisbon context.")
       ],
       topKPerQuery: 60,
@@ -1959,6 +1984,39 @@ const nearbyReviewContext = [
   /\bsurrounded by (?:restaurants?|cafes?|bars?|shops?)\b/i
 ];
 
+const positiveServiceContext = [
+  /\b(?:staff|front desk|reception|receptionist|host|team).{0,45}\b(?:helpful|friendly|kind|polite|welcoming|responsive|attentive|accommodating|nice|excellent|great)\b/i,
+  /\b(?:helpful|friendly|kind|polite|welcoming|responsive|attentive|accommodating|nice|excellent|great).{0,45}\b(?:staff|front desk|reception|receptionist|host|team)\b/i,
+  /\b(?:great|excellent|amazing|friendly|helpful) service\b/i,
+  /\bhospitality\b/i
+];
+
+const positiveArrivalContext = [
+  /\b(?:easy|smooth|quick|simple|straightforward|flexible).{0,35}\bcheck[- ]?in\b/i,
+  /\bcheck[- ]?in.{0,45}\b(?:easy|smooth|quick|simple|straightforward|flexible)\b/i,
+  /\b(?:leave|left|store|stored|hold|held|drop off|dropped off).{0,45}\b(?:bags?|luggage|suitcases?)\b/i,
+  /\b(?:bags?|luggage|suitcases?).{0,45}\b(?:storage|stored|held|drop off|leave|left)\b/i,
+  /\bearly check[- ]?in\b/i
+];
+
+const positiveValueContext = [
+  /\b(?:good|great|excellent|amazing|incredible) value\b/i,
+  /\bvalue for money\b/i,
+  /\bworth (?:the )?(?:price|money|it)\b/i,
+  /\breasonable price\b/i,
+  /\bfor the price\b/i
+];
+
+const positivePropertyQualityContext = [
+  /\b(?:new|newly|recently).{0,35}\b(?:renovated|refurbished|remodeled|remodelled|restored|updated)\b/i,
+  /\b(?:renovated|refurbished|remodeled|remodelled|restored|updated).{0,35}\b(?:room|rooms|hotel|apartment|flat|place|space|property|suite|suites)\b/i,
+  /\b(?:new|modern|updated|fresh|stylish).{0,35}\b(?:room|rooms|suite|suites|bathroom|space|apartment|hotel)\b/i,
+  /\b(?:room|rooms|suite|suites|bathroom|space|apartment|hotel).{0,35}\b(?:new|modern|updated|fresh|stylish|renovated|refurbished)\b/i,
+  /\b(?:quality|high[- ]?quality|top[- ]?quality).{0,35}\b(?:linen|linens|fittings|fixtures|amenities|facilities|room|rooms|bathroom)\b/i,
+  /\bwell[- ]?(?:equipped|appointed|maintained)\b/i,
+  /\b(?:luxury|luxurious|premium|boutique)\b/i
+];
+
 function reviewEvidence(reviews: Review[], include: RegExp[], exclude: RegExp[] = []): string[] {
   return reviews
     .filter((review) => include.some((pattern) => pattern.test(review.comments)))
@@ -2114,6 +2172,62 @@ function detectSignals(
         primaryEvidenceCount: evidence.length,
         evidence,
         recommendation: "Add a restrained comfort note when guests repeatedly mention it."
+      });
+    }
+  }
+
+  if (intent.includes("service") || hasBroadIntent) {
+    const evidence = reviewEvidence(reviews, positiveServiceContext);
+    if (evidence.length >= 3 && !descriptionAlreadyCoversSignal(currentDescription, "Guest-confirmed staff helpfulness")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed staff helpfulness",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Consider adding a concise service note when guests repeatedly praise staff or reception help."
+      });
+    }
+  }
+
+  if (intent.includes("service") || hasBroadIntent) {
+    const evidence = reviewEvidence(reviews, positiveArrivalContext);
+    if (evidence.length >= 3 && !descriptionAlreadyCoversSignal(currentDescription, "Guest-confirmed smooth arrival")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed smooth arrival",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Consider adding a concise arrival-support note when reviews repeatedly mention smooth check-in or luggage help."
+      });
+    }
+  }
+
+  if (intent.includes("service") || hasBroadIntent) {
+    const evidence = reviewEvidence(reviews, positiveValueContext);
+    if (evidence.length >= 3 && !descriptionAlreadyCoversSignal(currentDescription, "Guest-confirmed value")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed value",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Consider adding a modest value note when reviews repeatedly support it."
+      });
+    }
+  }
+
+  if (intent.includes("property_quality") || hasBroadIntent) {
+    const evidence = reviewEvidence(reviews, positivePropertyQualityContext);
+    if (evidence.length >= 3 && !descriptionAlreadyCoversSignal(currentDescription, "Guest-confirmed refreshed property quality")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed refreshed property quality",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Consider adding a modest note about modern, refreshed, or quality room feel when guests repeatedly mention it."
       });
     }
   }
@@ -2740,6 +2854,44 @@ function coverageContinuationSentence(stats?: ReviewSearchStats): string {
   return " Run the same request again to continue into the next unseen review window.";
 }
 
+function completedReviewCoverageSnapshotForCurrentScope(state: AgentState): boolean {
+  return completedReviewCoverageSnapshotEntry(state)?.completed === true;
+}
+
+function completedReviewCoverageSnapshotEntry(
+  state: AgentState
+): ReviewCoverageSnapshot[string] | undefined {
+  const snapshot = state.nextReviewCoverageState ?? state.reviewCoverageState;
+  if (!snapshot || !state.listing) {
+    return undefined;
+  }
+
+  const key = [
+    safeReviewCoverageKey(state.sessionId),
+    state.listing.id,
+    safeReviewCoverageKey(reviewCoverageScopeKey(state))
+  ].join(":");
+  return snapshot[key];
+}
+
+function completedReviewCoverageStopReason(state: AgentState): string {
+  const stats = state.reviewSearchStats;
+  const snapshotEntry = completedReviewCoverageSnapshotEntry(state);
+  const coveredCount =
+    stats?.coverageTotalReviewsInScope ??
+    snapshotEntry?.coveredIds?.length ??
+    0;
+  const coverageText = coveredCount > 0
+    ? `Review coverage for this audit scope is complete: ${coveredCount}/${coveredCount} review texts have been checked in this demo session.`
+    : "Review coverage for this audit scope is complete.";
+
+  return `${coverageText} The agent has already reviewed all available evidence for this scope, and no unseen review window remains for another autonomous pass. Any approved additions from that completed pass are the final evidence-backed updates the agent found justified.`;
+}
+
+function safeReviewCoverageKey(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.:-]+/g, "_").slice(0, 180);
+}
+
 function descriptionAlreadyCoversSignal(description: string, topic: string): boolean {
   if (hasMalformedGooglePlaceFragment(description)) {
     return false;
@@ -2755,7 +2907,7 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
     return includesAny(["lisbon style walk up access", "lisbon-style walk-up access", "characterful central stay"]);
   }
   if (topic === "Noise expectations") {
-    return includesAny(["lively central lisbon base", "city energy", "neighborhood restaurants"]);
+    return includesAny(["lively central lisbon base", "city energy", "neighborhood restaurants", "lively surrounding streets"]);
   }
   if (topic === "Temperature expectations") {
     return false;
@@ -2765,6 +2917,10 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
       "smart central base over extra room",
       "extra room",
       "compact",
+      "compact but practical",
+      "practical compact",
+      "short lisbon stays",
+      "short city stays",
       "space is best",
       "value a smart central base",
       "room was small",
@@ -2776,20 +2932,78 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
     return includesAny([
       "guests consistently highlight the walkable",
       "walkable central location",
+      "central walkable location",
       "guest confirmed walkable",
       "easy to reach lisbon",
+      "explore lisbon on foot",
+      "exploring lisbon on foot",
+      "explore the city on foot",
+      "exploring the city on foot",
+      "easy walk",
+      "within an easy walk",
+      "walk to rossio",
+      "central location",
       "reviews pointing to location and convenience",
       "location and convenience as the main strengths"
     ]);
   }
   if (topic === "Guest-mentioned view") {
-    return includesAny(["guest mentioned highlights", "view is one", "lisbon backdrop", "guest backed note about the view"]);
+    return (
+      (/\bviews?\b/.test(normalized) &&
+        /\b(some rooms?|balcon(?:y|ies)|city|street|castle|pleasant|lovely|memorable|backdrop|lisbon)\b/.test(normalized)) ||
+      includesAny([
+      "guest mentioned highlights",
+      "view is one",
+      "lisbon backdrop",
+      "guest backed note about the view",
+      "pleasant view",
+      "lovely view",
+      "lovely views",
+      "city view",
+      "city views",
+      "castle view",
+      "castle views",
+      "memorable city view",
+      "memorable city views",
+      "memorable city and castle views",
+      "views from some rooms",
+      "views from the property",
+      "city or street view",
+      "pleasant city or street view",
+      "some rooms offer",
+      "some rooms also offer",
+      "view or balcony",
+      "rooms and balconies",
+      "balconies offer",
+      "balcony over",
+      "balconies with",
+      "beautiful backdrop"
+      ])
+    );
   }
   if (topic === "Guest-confirmed cleanliness") {
-    return includesAny(["clean and well kept", "reviews repeatedly describe", "guest confirmed cleanliness"]);
+    return includesAny([
+      "clean and well kept",
+      "clean well kept",
+      "clean rooms",
+      "clean comfortable",
+      "well kept rooms",
+      "tidy rooms",
+      "reviews repeatedly describe",
+      "guest confirmed cleanliness"
+    ]);
   }
   if (topic === "Guest-confirmed comfort") {
-    return includesAny(["comfortable stay", "good sleep experience", "guest confirmed comfort"]);
+    return includesAny([
+      "comfortable stay",
+      "comfortable stays",
+      "comfortable beds",
+      "comfortable rooms",
+      "comfortable base",
+      "clean comfortable",
+      "good sleep experience",
+      "guest confirmed comfort"
+    ]);
   }
   if (topic === "Remote-work readiness") {
     return includesAny(["practical lisbon base", "travel with work", "listed wi fi amenity", "listed wifi amenity"]);
@@ -2804,6 +3018,83 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
       "nearby options such as",
       "nearby highlights include",
       "places to eat"
+    ]);
+  }
+  if (topic === "Guest-confirmed staff helpfulness") {
+    return includesAny([
+      "helpful staff",
+      "friendly staff",
+      "front desk",
+      "reception staff",
+      "welcoming staff",
+      "attentive staff",
+      "staff helpfulness",
+      "helpful reception",
+      "great service"
+    ]);
+  }
+  if (topic === "Guest-confirmed smooth arrival") {
+    return (
+      (/\b(check in|luggage|bags?|arrival)\b/.test(normalized) &&
+        /\b(easy|smooth|straightforward|quick|simple|support|storage|helpful)\b/.test(normalized)) ||
+      includesAny([
+      "smooth check in",
+      "smooth check-in",
+      "easy check in",
+      "easy check-in",
+      "easy straightforward check in",
+      "straightforward check in",
+      "straightforward check-in",
+      "quick check in",
+      "quick check-in",
+      "smooth arrival",
+      "simple well located stay with a smooth arrival",
+      "arrival and a classic lisbon atmosphere",
+      "luggage storage",
+      "leave bags",
+      "store luggage",
+      "arrival support"
+      ])
+    );
+  }
+  if (topic === "Guest-confirmed value") {
+    return includesAny([
+      "good value",
+      "great value",
+      "solid value",
+      "especially good value",
+      "great value choice",
+      "value choice",
+      "value for money",
+      "good value for money",
+      "practical and good value",
+      "good value base",
+      "value base",
+      "worth the price",
+      "reasonable price",
+      "for the price"
+    ]);
+  }
+  if (topic === "Guest-confirmed refreshed property quality") {
+    return includesAny([
+      "renovated",
+      "newly renovated",
+      "recently renovated",
+      "refreshed",
+      "fresh feel",
+      "modern rooms",
+      "modern room",
+      "modern bathroom",
+      "updated rooms",
+      "new suites",
+      "quality fittings",
+      "quality linen",
+      "quality linens",
+      "well equipped",
+      "well appointed",
+      "well maintained",
+      "boutique feel",
+      "premium feel"
     ]);
   }
 
@@ -2961,7 +3252,868 @@ function signalPriority(signal: Signal): number {
     return 2;
   }
 
+  if (
+    signal.topic === "Guest-confirmed staff helpfulness" ||
+    signal.topic === "Guest-confirmed smooth arrival" ||
+    signal.topic === "Guest-confirmed value" ||
+    signal.topic === "Guest-confirmed refreshed property quality"
+  ) {
+    return 1;
+  }
+
   return 2;
+}
+
+async function draftEditWithEvidenceReasoning(
+  state: AgentState,
+  steps: AgentStep[]
+): Promise<EditProposal | null> {
+  if (!state.listing || !state.signals) {
+    throw new Error("Cannot reason over listing evidence before listing data and signals exist.");
+  }
+
+  const currentDescription = state.page?.currentDescription ?? state.listing.description;
+  const fallbackProposal = draftEdit(
+    state.listing,
+    state.signals,
+    currentDescription,
+    state.reviewSearchStats,
+    state.intent,
+    state.rejectedTopics ?? []
+  );
+  const fallbackDecision = evidenceDecisionFromProposal(fallbackProposal);
+
+  if (
+    state.reviewSearchStats?.coverageComplete &&
+    (fallbackProposal.action === "stop_without_action" || fallbackProposal.action === "request_more_evidence")
+  ) {
+    return stopProposal(state.listing.id, completedReviewCoverageStopReason(state));
+  }
+
+  const reasoning = await callEvidenceReasoningLlm(state, "listing_edit", fallbackDecision, steps);
+
+  if (
+    reasoning.decision === "need_more_evidence" &&
+    state.reviseCount < 2 &&
+    state.reviewSearchStats?.coverageComplete !== true
+  ) {
+    prepareFollowUpEvidenceSearch(state, reasoning.rationale);
+    return null;
+  }
+
+  if (reasoning.decision === "generate_listing_content" && reasoningTopicsAlreadyCovered(state, reasoning)) {
+    if (state.reviseCount < 2 && state.reviewSearchStats?.coverageComplete !== true) {
+      prepareFollowUpEvidenceSearch(
+        state,
+        "The proposed public-copy topics are already covered in the current description."
+      );
+      return null;
+    }
+
+    return stopProposal(
+      state.listing.id,
+      `${coverageProgressSentence(state.reviewSearchStats)}The current simulated description already covers the strongest supported public-copy topics in this review window: ${reasoning.evidence_topics.join(", ") || "none"}.${coverageContinuationSentence(state.reviewSearchStats)}`
+    );
+  }
+
+  if (reasoning.decision === "no_justified_gap") {
+    return stopProposal(
+      state.listing.id,
+      `${coverageProgressSentence(state.reviewSearchStats)}${reasoning.rationale}${coverageContinuationSentence(state.reviewSearchStats)}`
+    );
+  }
+
+  if (reasoning.decision === "create_manager_recommendation") {
+    return stopProposal(
+      state.listing.id,
+      `${coverageProgressSentence(state.reviewSearchStats)}The evidence points to a manager-facing operational issue rather than a guest-facing listing edit: ${reasoning.rationale}${coverageContinuationSentence(state.reviewSearchStats)}`
+    );
+  }
+
+  if (reasoning.decision === "generate_listing_content") {
+    return proposalFromEvidenceReasoning(state, reasoning, fallbackProposal);
+  }
+
+  return fallbackProposal;
+}
+
+function reasoningTopicsAlreadyCovered(state: AgentState, reasoning: EvidenceReasoningDecision): boolean {
+  const currentDescription = state.page?.currentDescription ?? state.listing?.description ?? "";
+  const topics = reasoning.evidence_topics.filter((topic) => {
+    const signal = state.signals?.find((candidate) => candidate.topic === topic);
+    return !signal || suggestedUseForSignal(signal, currentDescription) !== "manager_only";
+  });
+
+  if (topics.length === 0) {
+    return false;
+  }
+
+  return topics.every((topic) => descriptionAlreadyCoversSignal(currentDescription, topic));
+}
+
+async function draftManagerRecommendationsWithEvidenceReasoning(
+  state: AgentState,
+  steps: AgentStep[]
+): Promise<ManagerRecommendation[] | null> {
+  if (!state.listing || !state.reviews || !state.signals) {
+    throw new Error("Cannot reason over manager recommendations before listing reviews and signals exist.");
+  }
+
+  const fallbackRecommendations = draftManagerRecommendations(state.listing, state.reviews, state.signals);
+  const fallbackDecision: EvidenceReasoningDecision = {
+    decision: "create_manager_recommendation",
+    rationale: "Use repeated guest-review issues to produce manager-facing improvement recommendations.",
+    evidence_topics: fallbackRecommendations.map((recommendation) => recommendation.topic),
+    proposed_description_addition: null,
+    proposed_description_replacement: null,
+    manager_recommendations: fallbackRecommendations
+  };
+  const reasoning = await callEvidenceReasoningLlm(
+    state,
+    "manager_recommendations",
+    fallbackDecision,
+    steps,
+    fallbackRecommendations
+  );
+
+  if (
+    reasoning.decision === "need_more_evidence" &&
+    state.reviseCount < 2 &&
+    state.reviewSearchStats?.coverageComplete !== true
+  ) {
+    prepareFollowUpEvidenceSearch(state, reasoning.rationale);
+    return null;
+  }
+
+  if (reasoning.decision === "create_manager_recommendation" && reasoning.manager_recommendations?.length) {
+    return aggregateManagerRecommendations(
+      state,
+      normalizeManagerRecommendations(reasoning.manager_recommendations).slice(0, 4)
+    );
+  }
+
+  if (reasoning.decision === "no_justified_gap") {
+    const previous = previousManagerRecommendations(state);
+    if (previous.length > 0) {
+      return previous;
+    }
+
+    return [
+      {
+        topic: "No repeated fixable issue found",
+        priority: "low",
+        guestSignal: reasoning.rationale,
+        suggestedAction: "Keep monitoring new guest feedback and avoid operational changes that are not review-backed.",
+        businessValue: "Avoiding unsupported changes protects listing quality and keeps the manager focused on real guest friction.",
+        evidenceCount: state.reviews.length,
+        evidence: (state.relevantReviews?.length ? state.relevantReviews : state.reviews)
+          .slice(0, 2)
+          .map((review) => excerpt(review.comments))
+      }
+    ];
+  }
+
+  return aggregateManagerRecommendations(state, fallbackRecommendations);
+}
+
+function aggregateManagerRecommendations(
+  state: AgentState,
+  recommendations: ManagerRecommendation[]
+): ManagerRecommendation[] {
+  if (!state.listing || !needsManagerRecommendations(state) || recommendations.length === 0) {
+    return recommendations;
+  }
+
+  const stats = state.reviewSearchStats;
+  const aggregate = mergeManagerInsights({
+    sessionId: state.sessionId,
+    listingId: state.listing.id,
+    scopeKey: reviewCoverageScopeKey(state),
+    recommendations,
+    coverageChecked: stats?.coverageCoveredAfterCount ?? 0,
+    coverageTotal: stats?.coverageTotalReviewsInScope ?? 0,
+    coverageComplete: stats?.coverageComplete ?? false
+  });
+
+  return aggregate.recommendations;
+}
+
+function previousManagerRecommendations(state: AgentState): ManagerRecommendation[] {
+  if (!state.listing || !needsManagerRecommendations(state)) {
+    return [];
+  }
+
+  return getManagerInsights({
+    sessionId: state.sessionId,
+    listingId: state.listing.id,
+    scopeKey: reviewCoverageScopeKey(state)
+  })?.recommendations ?? [];
+}
+
+async function callEvidenceReasoningLlm(
+  state: AgentState,
+  mode: "listing_edit" | "manager_recommendations",
+  mockResponse: EvidenceReasoningDecision,
+  steps: AgentStep[],
+  managerIssueCandidates: ManagerRecommendation[] = []
+): Promise<EvidenceReasoningDecision> {
+  const payload = evidenceReasoningPayload(state, mode, managerIssueCandidates);
+  const result = await callLlmJsonWithTrace<EvidenceReasoningDecision>({
+    module: "Autonomous Listing Editor Agent",
+    messages: [
+      { role: "system", content: EVIDENCE_REASONING_SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify(payload) }
+    ],
+    mockResponse
+  });
+
+  if (result.steps.length > 0) {
+    steps.push(...result.steps);
+  }
+
+  const parsed = EvidenceReasoningDecisionSchema.safeParse(result.output);
+  if (!parsed.success) {
+    if (result.calledLive) {
+      throw new Error("Evidence reasoning LLM returned JSON that failed runtime validation.");
+    }
+
+    return mockResponse;
+  }
+
+  let decision: EvidenceReasoningDecision = parsed.data;
+  if (result.calledLive && publicListingCopyNeedsRepair(decision, payload)) {
+    decision = await repairPublicListingCopyWithLlm(decision, payload, steps);
+  }
+  decision = stripUnsupportedPublicComplaintFallback(decision, payload);
+
+  if (result.calledLive && publicListingCopyMentionsCoveredTopicOutsideEvidence(decision, payload)) {
+    decision = await repairCoveredTopicPaddingWithLlm(decision, payload, steps);
+  }
+
+  if (result.calledLive && nearbyDetailsMissing(decision, payload)) {
+    const repaired = await repairNearbyDetailsWithLlm(decision, payload, steps);
+    const safeRepaired = stripUnsupportedPublicComplaintFallback(repaired, payload);
+    return nearbyDetailsMissing(safeRepaired, payload)
+      ? stripUnsupportedPublicComplaintFallback(appendNearbyDetailsFallback(safeRepaired, payload), payload)
+      : safeRepaired;
+  }
+
+  return stripUnsupportedPublicComplaintFallback(appendNearbyDetailsFallback(decision, payload), payload);
+}
+
+async function repairCoveredTopicPaddingWithLlm(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>,
+  steps: AgentStep[]
+): Promise<EvidenceReasoningDecision> {
+  const result = await callLlmJsonWithTrace<EvidenceReasoningDecision>({
+    module: "Autonomous Listing Editor Agent",
+    messages: [
+      {
+        role: "system",
+        content: [
+          EVIDENCE_REASONING_SYSTEM_PROMPT,
+          "Correction: the proposed copy appears to pad a new opportunity with public topics already covered in the current description.",
+          "Rewrite the copy to focus only on the uncovered evidence_topics and uncovered_public_opportunities.",
+          "If no material new guest-facing angle remains, choose need_more_evidence when coverage is incomplete or no_justified_gap when coverage is complete."
+        ].join("\n\n")
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          previous_decision: decision,
+          current_listing_content: payload.current_listing_content,
+          covered_public_topics: payload.covered_public_topics,
+          uncovered_public_opportunities: payload.uncovered_public_opportunities,
+          review_search_stats: payload.review_search_stats
+        })
+      }
+    ],
+    mockResponse: decision
+  });
+
+  if (result.steps.length > 0) {
+    steps.push(...result.steps);
+  }
+
+  const parsed = EvidenceReasoningDecisionSchema.safeParse(result.output);
+  return parsed.success ? parsed.data : decision;
+}
+
+async function repairPublicListingCopyWithLlm(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>,
+  steps: AgentStep[]
+): Promise<EvidenceReasoningDecision> {
+  const result = await callLlmJsonWithTrace<EvidenceReasoningDecision>({
+    module: "Autonomous Listing Editor Agent",
+    messages: [
+      {
+        role: "system",
+        content: [
+          EVIDENCE_REASONING_SYSTEM_PROMPT,
+          "Correction: the listing copy reads too much like an operational complaint or warning.",
+          "Keep the same decision type when possible, but remove public complaint language for noise, Wi-Fi, cleaning, maintenance, or temperature unless the current listing directly overclaims that topic.",
+          "Preserve attractive positive highlights and supplied nearby Google Places details when they are justified."
+        ].join("\n\n")
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          previous_decision: decision,
+          current_listing_content: payload.current_listing_content,
+          detected_signals: payload.detected_signals,
+          nearby_highlight_candidates: payload.nearby_highlight_candidates,
+          public_copy_topic_guidance: payload.public_copy_topic_guidance
+        })
+      }
+    ],
+    mockResponse: stripUnsupportedPublicComplaintFallback(decision, payload)
+  });
+
+  if (result.steps.length > 0) {
+    steps.push(...result.steps);
+  }
+
+  const parsed = EvidenceReasoningDecisionSchema.safeParse(result.output);
+  return parsed.success ? parsed.data : stripUnsupportedPublicComplaintFallback(decision, payload);
+}
+
+async function repairNearbyDetailsWithLlm(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>,
+  steps: AgentStep[]
+): Promise<EvidenceReasoningDecision> {
+  const result = await callLlmJsonWithTrace<EvidenceReasoningDecision>({
+    module: "Autonomous Listing Editor Agent",
+    messages: [
+      {
+        role: "system",
+        content: [
+          EVIDENCE_REASONING_SYSTEM_PROMPT,
+          "Correction: you selected a nearby evidence topic but omitted supplied Google rating/review-count/distance details.",
+          "Return the same decision type, but rewrite the listing copy so the nearby sentence uses 2-3 exact strings from nearby_highlight_candidates."
+        ].join("\n\n")
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          previous_decision: decision,
+          nearby_highlight_candidates: payload.nearby_highlight_candidates,
+          current_listing_content: payload.current_listing_content
+        })
+      }
+    ],
+    mockResponse: appendNearbyDetailsFallback(decision, payload)
+  });
+
+  if (result.steps.length > 0) {
+    steps.push(...result.steps);
+  }
+
+  const parsed = EvidenceReasoningDecisionSchema.safeParse(result.output);
+  return parsed.success ? parsed.data : appendNearbyDetailsFallback(decision, payload);
+}
+
+function evidenceReasoningPayload(
+  state: AgentState,
+  mode: "listing_edit" | "manager_recommendations",
+  managerIssueCandidates: ManagerRecommendation[] = []
+): Record<string, unknown> {
+  const currentDescription = state.page?.currentDescription ?? state.listing?.description ?? "";
+  const places = (state.relevantPlaces ?? []).slice(0, 6).map((place) => ({
+    name: place.placeName,
+    category: place.category,
+    rating: place.rating,
+    google_review_count: place.numberOfReviews,
+    approximate_distance_km: place.distanceKm === undefined ? null : Number(place.distanceKm.toFixed(2))
+  }));
+  const nearbySignals = (state.signals ?? []).filter(
+    (signal) => signal.topic === "Rated nearby dining options" || signal.topic === "Rated nearby guest options"
+  );
+  const nearbyHighlightCandidates = uniqueFormattedGooglePlaces(nearbySignals.flatMap((signal) => signal.evidence))
+    .slice(0, 4);
+  const currentListingHasSpecificNearbyPlaces = /\bGoogle reviews\b|\b\d(?:\.\d)?\/5\b|about \d+(?:\.\d+)? km away/i.test(currentDescription);
+  const nearbyGuestReviewSupportCount = nearbySignals.reduce((total, signal) => total + signal.primaryEvidenceCount, 0);
+  const publicOpportunities = publicListingOpportunities(state.signals ?? [], currentDescription);
+
+  return {
+    mode,
+    listing_id: state.listingId,
+    listing_name: state.listing?.name ?? null,
+    manager_prompt: state.prompt,
+    current_listing_content: excerpt(currentDescription, 2200),
+    current_listing_has_specific_nearby_places: currentListingHasSpecificNearbyPlaces,
+    extracted_current_claims: state.claims ?? null,
+    review_search_stats: state.reviewSearchStats
+      ? {
+          source: state.reviewSource,
+          strategy: state.reviewSearchStats.strategy,
+          coverage_checked: state.reviewSearchStats.coverageCoveredAfterCount,
+          coverage_total: state.reviewSearchStats.coverageTotalReviewsInScope,
+          coverage_complete: state.reviewSearchStats.coverageComplete
+        }
+      : null,
+    detected_signals: state.signals && state.page
+      ? compactSignalBrief(state.signals, state.page.currentDescription)
+      : [],
+    manager_issue_candidates:
+      mode === "manager_recommendations"
+        ? compactManagerIssueCandidates(managerIssueCandidates)
+        : [],
+    covered_public_topics: coveredPublicTopics(state.signals ?? [], currentDescription),
+    uncovered_public_opportunities: publicOpportunities,
+    uncovered_public_opportunity_count: publicOpportunities.length,
+    nearby_google_places_context: places,
+    nearby_highlight_candidates: nearbyHighlightCandidates,
+    nearby_guest_review_support_count: nearbyGuestReviewSupportCount,
+    high_value_nearby_context_available:
+      nearbyHighlightCandidates.length > 0 && nearbyGuestReviewSupportCount >= 2 && !currentListingHasSpecificNearbyPlaces,
+    public_copy_topic_guidance:
+      "Use positive public-copy signals for description edits. Use operational complaint signals such as noise, Wi-Fi, cleaning issues, maintenance, or temperature as manager-only unless the current listing directly overclaims that topic.",
+    repeated_run_guidance:
+      "Repeated end-to-end runs should continue into the next unseen review window when coverage is incomplete and the current window does not justify a fresh public edit. Stop only when coverage is complete or no justified gap remains after bounded follow-up.",
+    decision_instructions:
+      mode === "manager_recommendations"
+        ? "Return 2-4 prioritized manager recommendations only. Use manager_issue_candidates and representative review evidence to choose the strongest fixable negative issues. Do not propose public listing copy."
+        : "Return public listing copy only if it is attractive, concise, evidence-backed, and guest-facing. When uncovered_public_opportunities has several compatible positives, produce a substantial but compact improvement rather than one generic sentence. Operational complaints usually belong to manager recommendations, not description text.",
+    follow_up_limit_remaining: Math.max(0, 2 - state.reviseCount)
+  };
+}
+
+function publicListingOpportunities(signals: Signal[], currentDescription: string): Array<Record<string, unknown>> {
+  return selectSignalsForBrief(signals)
+    .map((signal) => {
+      const suggestedUse = suggestedUseForSignal(signal, currentDescription);
+      return {
+        topic: signal.topic,
+        type: signal.type,
+        evidence_count: signal.evidenceCount,
+        primary_review_evidence_count: signal.primaryEvidenceCount,
+        already_covered_in_description: descriptionAlreadyCoversSignal(currentDescription, signal.topic),
+        suggested_use: suggestedUse,
+        representative_evidence: signal.evidence.slice(0, 4).map((item) => excerpt(item, 170)),
+        copy_angle: publicCopyAngleForSignal(signal)
+      };
+    })
+    .filter((item) =>
+      item.already_covered_in_description !== true &&
+      (item.suggested_use === "positive_public_copy" || item.suggested_use === "expectation_setting") &&
+      Number(item.primary_review_evidence_count) >= 2
+    )
+    .slice(0, 6);
+}
+
+function compactManagerIssueCandidates(recommendations: ManagerRecommendation[]): Array<Record<string, unknown>> {
+  return recommendations.slice(0, 6).map((recommendation) => ({
+    topic: recommendation.topic,
+    priority_hint: recommendation.priority,
+    evidence_count: recommendation.evidenceCount,
+    guest_signal_hint: recommendation.guestSignal,
+    suggested_action_hint: recommendation.suggestedAction,
+    business_value_hint: recommendation.businessValue,
+    representative_evidence: recommendation.evidence.slice(0, 4).map((item) => excerpt(item, 170))
+  }));
+}
+
+function coveredPublicTopics(signals: Signal[], currentDescription: string): string[] {
+  return selectSignalsForBrief(signals)
+    .filter((signal) => descriptionAlreadyCoversSignal(currentDescription, signal.topic))
+    .map((signal) => signal.topic);
+}
+
+function publicCopyAngleForSignal(signal: Signal): string {
+  if (signal.topic === "Guest-confirmed walkable location") {
+    return "guest-confirmed central walkability and easy Lisbon exploring";
+  }
+  if (signal.topic === "Guest-confirmed cleanliness") {
+    return "clean, well-kept rooms as a confidence-building positive";
+  }
+  if (signal.topic === "Guest-confirmed comfort") {
+    return "comfortable stay or comfortable bed, phrased as reassurance";
+  }
+  if (signal.topic === "Guest-mentioned view") {
+    return "modest view highlight only when reviews support it";
+  }
+  if (signal.topic === "Space expectations") {
+    return "practical compact setup for short Lisbon stays, without sounding negative";
+  }
+  if (signal.topic === "Access and stairs expectations") {
+    return "audience fit for guests comfortable with Lisbon-style access, only if needed";
+  }
+  if (signal.topic === "Historic Lisbon hills") {
+    return "characterful historic walking base, phrased positively and lightly";
+  }
+  if (signal.topic === "Rated nearby guest options" || signal.topic === "Rated nearby dining options") {
+    return "nearby guest-facing options with supplied Google ratings, review counts, and distances";
+  }
+  if (signal.topic === "Guest-confirmed staff helpfulness") {
+    return "helpful, friendly staff or reception support as a confidence-building hotel strength";
+  }
+  if (signal.topic === "Guest-confirmed smooth arrival") {
+    return "smooth check-in or luggage support when it improves arrival confidence";
+  }
+  if (signal.topic === "Guest-confirmed value") {
+    return "good value for a central Lisbon base, phrased modestly";
+  }
+  if (signal.topic === "Guest-confirmed refreshed property quality") {
+    return "modern, refreshed, renovated, or quality room feel, phrased modestly without overclaiming luxury";
+  }
+  return "use only if it creates attractive, evidence-backed guest-facing copy";
+}
+
+function nearbyDetailsMissing(decision: EvidenceReasoningDecision, payload: Record<string, unknown>): boolean {
+  if (decision.decision !== "generate_listing_content") {
+    return false;
+  }
+
+  const candidates = arrayOfStrings(payload.nearby_highlight_candidates);
+  if (candidates.length === 0 || payload.current_listing_has_specific_nearby_places === true) {
+    return false;
+  }
+
+  const usesNearbyTopic = decision.evidence_topics.some((topic) => /nearby|dining/i.test(topic));
+  if (!usesNearbyTopic && !shouldIncludeNearbyDetails(payload)) {
+    return false;
+  }
+
+  const copy = `${decision.proposed_description_addition ?? ""} ${decision.proposed_description_replacement ?? ""}`;
+  if (!copy.trim()) {
+    return false;
+  }
+
+  return !/\bGoogle reviews\b|\b\d(?:\.\d)?\/5\b|about \d+(?:\.\d+)? km away/i.test(copy);
+}
+
+function shouldIncludeNearbyDetails(payload: Record<string, unknown>): boolean {
+  return (
+    arrayOfStrings(payload.nearby_highlight_candidates).length > 0 &&
+    payload.current_listing_has_specific_nearby_places !== true &&
+    Number(payload.nearby_guest_review_support_count ?? 0) >= 2
+  );
+}
+
+function appendNearbyDetailsFallback(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>
+): EvidenceReasoningDecision {
+  if (!nearbyDetailsMissing(decision, payload)) {
+    return decision;
+  }
+
+  const candidates = arrayOfStrings(payload.nearby_highlight_candidates).slice(0, 3);
+  if (candidates.length === 0) {
+    return decision;
+  }
+
+  const nearbySentence = `Guest location reviews also support highlighting nearby options such as ${candidates.join(", ")}.`;
+  return {
+    ...decision,
+    proposed_description_addition: decision.proposed_description_addition
+      ? appendTextIfMissing(decision.proposed_description_addition, nearbySentence)
+      : nearbySentence,
+    proposed_description_replacement: decision.proposed_description_replacement
+      ? appendTextIfMissing(decision.proposed_description_replacement, nearbySentence)
+      : decision.proposed_description_replacement,
+    evidence_topics: decision.evidence_topics.some((topic) => /nearby|dining/i.test(topic))
+      ? decision.evidence_topics
+      : [...decision.evidence_topics, "Rated nearby guest options"]
+  };
+}
+
+function publicListingCopyNeedsRepair(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>
+): boolean {
+  if (decision.decision !== "generate_listing_content") {
+    return false;
+  }
+
+  const copy = `${decision.proposed_description_addition ?? ""} ${decision.proposed_description_replacement ?? ""}`;
+  return splitGeneratedSentences(copy).some((sentence) => isUnsupportedPublicComplaintSentence(sentence, payload));
+}
+
+function publicListingCopyMentionsCoveredTopicOutsideEvidence(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>
+): boolean {
+  if (decision.decision !== "generate_listing_content") {
+    return false;
+  }
+
+  const copy = `${decision.proposed_description_addition ?? ""} ${decision.proposed_description_replacement ?? ""}`.trim();
+  if (!copy) {
+    return false;
+  }
+
+  const evidenceTopics = new Set(decision.evidence_topics);
+  return arrayOfStrings(payload.covered_public_topics).some(
+    (topic) => !evidenceTopics.has(topic) && copyMentionsPublicTopic(copy, topic)
+  );
+}
+
+function copyMentionsPublicTopic(copy: string, topic: string): boolean {
+  const normalized = normalizeTextForCoverage(copy);
+
+  if (topic === "Guest-confirmed smooth arrival") {
+    return /\b(check in|luggage|bags?|arrival)\b/.test(normalized);
+  }
+  if (topic === "Space expectations") {
+    return /\b(compact|practical setup|short city|short stay|short stays)\b/.test(normalized);
+  }
+  if (topic === "Guest-mentioned view") {
+    return /\bviews?\b|\bbalcon(?:y|ies)\b/.test(normalized);
+  }
+  if (topic === "Guest-confirmed staff helpfulness") {
+    return /\b(staff|front desk|reception|service)\b/.test(normalized);
+  }
+  if (topic === "Guest-confirmed walkable location") {
+    return /\b(walkable|walk|central location|rossio|baixa|chiado|bairro alto|metro)\b/.test(normalized);
+  }
+  if (topic === "Guest-confirmed cleanliness") {
+    return /\b(clean|tidy|well kept|spotless)\b/.test(normalized);
+  }
+  if (topic === "Guest-confirmed comfort") {
+    return /\b(comfortable|comfy|beds?|sleep)\b/.test(normalized);
+  }
+  if (topic === "Rated nearby guest options" || topic === "Rated nearby dining options") {
+    return /\b(google reviews|nearby|bar|restaurant|cafe)\b/.test(normalized);
+  }
+  if (topic === "Guest-confirmed value") {
+    return /\b(value|price|money)\b/.test(normalized);
+  }
+  if (topic === "Guest-confirmed refreshed property quality") {
+    return /\b(renovated|refurbished|modern|updated|refreshed|new suites?|quality|well equipped|well appointed|boutique|premium)\b/.test(normalized);
+  }
+
+  return false;
+}
+
+function stripUnsupportedPublicComplaintFallback(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>
+): EvidenceReasoningDecision {
+  if (decision.decision !== "generate_listing_content") {
+    return decision;
+  }
+
+  return {
+    ...decision,
+    proposed_description_addition: stripUnsupportedPublicComplaintSentences(
+      decision.proposed_description_addition,
+      payload
+    ),
+    proposed_description_replacement: stripUnsupportedPublicComplaintSentences(
+      decision.proposed_description_replacement,
+      payload
+    )
+  };
+}
+
+function stripUnsupportedPublicComplaintSentences(
+  value: string | null | undefined,
+  payload: Record<string, unknown>
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const cleaned = splitGeneratedSentences(value)
+    .filter((sentence) => !isUnsupportedPublicComplaintSentence(sentence, payload))
+    .join(" ")
+    .trim();
+
+  return cleaned || null;
+}
+
+function isUnsupportedPublicComplaintSentence(sentence: string, payload: Record<string, unknown>): boolean {
+  const currentDescription = typeof payload.current_listing_content === "string" ? payload.current_listing_content : "";
+  const normalized = normalizeTextForCoverage(sentence);
+
+  if (
+    !listingDirectlyOverclaimsTopic(currentDescription, "Noise expectations") &&
+    includesAnyNormalized(normalized, [
+      "street noise",
+      "weekend street noise",
+      "gets loud",
+      "can be loud",
+      "can be noisy",
+      "noisy",
+      "noise disturbance",
+      "lower floors",
+      "affected by weekend"
+    ])
+  ) {
+    return true;
+  }
+
+  if (
+    !listingDirectlyOverclaimsTopic(currentDescription, "Temperature expectations") &&
+    includesAnyNormalized(normalized, [
+      "too hot",
+      "too warm",
+      "too cold",
+      "cooling problem",
+      "temperature problem",
+      "prefer a cooler room",
+      "check the setup before booking"
+    ])
+  ) {
+    return true;
+  }
+
+  if (
+    !listingDirectlyOverclaimsTopic(currentDescription, "Remote-work readiness") &&
+    includesAnyNormalized(normalized, [
+      "wifi problem",
+      "wi fi problem",
+      "internet problem",
+      "slow wifi",
+      "weak wifi",
+      "unreliable wifi",
+      "wifi did not work",
+      "wifi does not work"
+    ])
+  ) {
+    return true;
+  }
+
+  return includesAnyNormalized(normalized, [
+    "maintenance issue",
+    "cleaning issue",
+    "dirty",
+    "not clean",
+    "broken",
+    "does not work",
+    "did not work"
+  ]);
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function evidenceDecisionFromProposal(proposal: EditProposal): EvidenceReasoningDecision {
+  if (proposal.action === "request_more_evidence") {
+    return {
+      decision: "need_more_evidence",
+      rationale: proposal.reason ?? "More targeted review evidence is needed before a safe page edit.",
+      evidence_topics: proposal.evidence_topics ?? [],
+      proposed_description_addition: null,
+      proposed_description_replacement: null,
+      manager_recommendations: []
+    };
+  }
+
+  if (proposal.action === "stop_without_action") {
+    return {
+      decision: "no_justified_gap",
+      rationale: proposal.reason ?? "No safe evidence-backed change is justified.",
+      evidence_topics: proposal.evidence_topics ?? [],
+      proposed_description_addition: null,
+      proposed_description_replacement: null,
+      manager_recommendations: []
+    };
+  }
+
+  return {
+    decision: "generate_listing_content",
+    rationale: proposal.reason ?? "The evidence supports a narrow guest-facing listing edit.",
+    evidence_topics: proposal.evidence_topics ?? [],
+    proposed_description_addition: proposal.proposed_description_addition,
+    proposed_description_replacement: proposal.proposed_description_replacement ?? null,
+    manager_recommendations: []
+  };
+}
+
+function proposalFromEvidenceReasoning(
+  state: AgentState,
+  reasoning: EvidenceReasoningDecision,
+  fallbackProposal: EditProposal
+): EditProposal {
+  const listingId = state.listing!.id;
+  const currentDescription = state.page?.currentDescription ?? state.listing!.description;
+  const evidenceTopics = reasoning.evidence_topics.length ? reasoning.evidence_topics : fallbackProposal.evidence_topics ?? [];
+  const replacement = cleanLlmListingCopy(reasoning.proposed_description_replacement);
+  const addition = cleanLlmListingCopy(reasoning.proposed_description_addition);
+
+  if (replacement && normalizeTextForCoverage(replacement) !== normalizeTextForCoverage(currentDescription)) {
+    return {
+      action: "replace_description",
+      target_fields: ["description"],
+      listing_id: listingId,
+      proposed_description_addition: null,
+      proposed_description_replacement: replacement,
+      evidence_topics: evidenceTopics,
+      reason: reasoning.rationale
+    };
+  }
+
+  if (addition && normalizeTextForCoverage(appendTextIfMissing(currentDescription, addition)) !== normalizeTextForCoverage(currentDescription)) {
+    return {
+      action: "prepare_edit_proposal",
+      target_fields: ["description"],
+      listing_id: listingId,
+      proposed_description_addition: addition,
+      proposed_description_replacement: null,
+      evidence_topics: evidenceTopics,
+      reason: reasoning.rationale
+    };
+  }
+
+  return stopProposal(
+    listingId,
+    `${coverageProgressSentence(state.reviewSearchStats)}The LLM found evidence, but it did not produce a material new guest-facing listing change beyond the current page.${coverageContinuationSentence(state.reviewSearchStats)}`
+  );
+}
+
+function cleanLlmListingCopy(value: string | null | undefined): string | null {
+  const cleaned = value
+    ?.replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    ?.replace(/\s+/g, " ")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  return cleaned.length > 900 ? `${cleaned.slice(0, 900).trim()}.` : cleaned;
+}
+
+function prepareFollowUpEvidenceSearch(state: AgentState, rationale: string): void {
+  state.requireMoreEvidence = true;
+  state.reviseCount += 1;
+  state.reviews = undefined;
+  state.relevantReviews = undefined;
+  state.signals = undefined;
+  state.proposal = undefined;
+  state.observations.push(`Evidence reasoning requested another targeted review window: ${rationale}`);
+}
+
+function normalizeManagerRecommendations(
+  recommendations: NonNullable<EvidenceReasoningDecision["manager_recommendations"]>
+): ManagerRecommendation[] {
+  return recommendations.map((recommendation) => ({
+    topic: excerpt(normalizeLlmText(recommendation.topic), 80),
+    priority: recommendation.priority,
+    guestSignal: excerpt(normalizeLlmText(recommendation.guestSignal), 180),
+    suggestedAction: excerpt(normalizeLlmText(recommendation.suggestedAction), 220),
+    businessValue: excerpt(normalizeLlmText(recommendation.businessValue), 220),
+    evidenceCount: Math.max(0, Math.round(recommendation.evidenceCount)),
+    evidence: recommendation.evidence.slice(0, 3).map((item) => excerpt(normalizeLlmText(item), 180))
+  }));
+}
+
+function normalizeLlmText(value: string): string {
+  return value
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function draftManagerRecommendations(
@@ -3367,7 +4519,7 @@ function finalResponse(state: AgentState): string {
   }
 
   if (state.managerRecommendations) {
-    return managerRecommendationResponse(state.listing, state.managerRecommendations);
+    return managerRecommendationResponse(state);
   }
 
   if (state.evidenceReport) {
@@ -3530,26 +4682,60 @@ function pageEditEvidenceSummary(state: AgentState): string {
   return "Airbnb guest reviews were the primary evidence source; Google Places was used only as supporting context when relevant.";
 }
 
-function managerRecommendationResponse(listing: Listing, recommendations: ManagerRecommendation[]): string {
+function managerRecommendationResponse(state: AgentState): string {
+  const listing = state.listing!;
+  const recommendations = state.managerRecommendations ?? [];
   const lines = [
     `Manager recommendations for listing ${listing.id}: ${listing.name}.`,
     "",
     "The agent did not edit the listing page. It used read-only guest reviews to identify fixable property or operations issues.",
-    ""
+    "Repeated runs on the same prompt accumulate findings from each new review window, so the priority list becomes more evidence-backed over time.",
+    "",
+    managerCoverageSummary(state),
+    "",
+    "Top cumulative priorities:"
   ];
 
-  for (const recommendation of recommendations) {
+  for (const [index, recommendation] of recommendations.entries()) {
     lines.push(
-      `${recommendation.priority.toUpperCase()} | ${recommendation.topic}`,
-      `Guest signal: ${recommendation.guestSignal} (${recommendation.evidenceCount} review signals).`,
-      `Recommended action: ${recommendation.suggestedAction}`,
-      `Why it helps: ${recommendation.businessValue}`,
+      "",
+      `${index + 1}. [${recommendation.priority.toUpperCase()}] ${recommendation.topic}`,
+      `   Guest signal: ${recommendation.guestSignal} (${recommendation.evidenceCount} review signals).`,
+      `   First improvement: ${recommendation.suggestedAction}`,
+      `   Why it helps: ${recommendation.businessValue}`,
       ""
     );
   }
 
+  const continuation = managerCoverageContinuation(state);
+  if (continuation) {
+    lines.push(continuation, "");
+  }
+
   lines.push("No live Airbnb account, pricing, bookings, private messages, guest reviews, or source CSV rows were changed.");
   return lines.join("\n");
+}
+
+function managerCoverageSummary(state: AgentState): string {
+  const stats = state.reviewSearchStats;
+  if (!stats || stats.coverageTotalReviewsInScope === 0) {
+    return "Review coverage: focused guest-review evidence was retrieved for this recommendation pass.";
+  }
+
+  return `Review coverage: ${stats.coverageCoveredAfterCount}/${stats.coverageTotalReviewsInScope} review texts checked for this manager-insight scope.`;
+}
+
+function managerCoverageContinuation(state: AgentState): string {
+  const stats = state.reviewSearchStats;
+  if (!stats || stats.coverageTotalReviewsInScope === 0) {
+    return "";
+  }
+
+  if (stats.coverageComplete) {
+    return "Coverage complete: the agent has checked all available review texts for this manager-insight scope.";
+  }
+
+  return "Run the same request again to continue into the next unseen review window and surface additional fixable issues if the evidence supports them.";
 }
 
 function evidenceReportResponse(report: EvidenceReport): string {
@@ -3689,28 +4875,60 @@ function summarizeState(state: AgentState): string {
 }
 
 function compactSignalBrief(signals: Signal[], currentDescription: string): Array<Record<string, unknown>> {
-  return signals
-    .filter((signal) => signal.type !== "insufficient_evidence")
-    .sort((a, b) => signalPriority(a) - signalPriority(b))
-    .slice(0, 5)
+  return selectSignalsForBrief(signals)
     .map((signal) => ({
       topic: signal.topic,
       type: signal.type,
       evidence_count: signal.evidenceCount,
       primary_review_evidence_count: signal.primaryEvidenceCount,
       already_covered_in_description: descriptionAlreadyCoversSignal(currentDescription, signal.topic),
-      suggested_use: suggestedUseForSignal(signal),
+      suggested_use: suggestedUseForSignal(signal, currentDescription),
       representative_evidence: signal.evidence.slice(0, 3).map((item) => excerpt(item, 150)),
       recommendation: signal.recommendation
     }));
 }
 
-function suggestedUseForSignal(signal: Signal): "positive_public_copy" | "expectation_setting" | "manager_only" | "stop" {
+function selectSignalsForBrief(signals: Signal[]): Signal[] {
+  const candidates = signals
+    .filter((signal) => signal.type !== "insufficient_evidence")
+    .sort((a, b) => signalPriority(a) - signalPriority(b));
+  const selected = candidates.slice(0, 6);
+  const mustInclude = [
+    candidates.find((signal) => signal.topic === "Rated nearby dining options"),
+    candidates.find((signal) => signal.topic === "Rated nearby guest options"),
+    candidates.find((signal) => signal.topic === "Guest-confirmed comfort"),
+    candidates.find((signal) => signal.topic === "Guest-confirmed staff helpfulness"),
+    candidates.find((signal) => signal.topic === "Guest-confirmed smooth arrival"),
+    candidates.find((signal) => signal.topic === "Guest-confirmed value"),
+    candidates.find((signal) => signal.topic === "Guest-confirmed refreshed property quality")
+  ].filter((signal): signal is Signal => Boolean(signal));
+
+  for (const signal of mustInclude) {
+    if (!selected.includes(signal)) {
+      selected.push(signal);
+    }
+  }
+
+  return selected.slice(0, 10);
+}
+
+function suggestedUseForSignal(
+  signal: Signal,
+  currentDescription: string
+): "positive_public_copy" | "expectation_setting" | "manager_only" | "stop" {
   if (signal.type === "accuracy_gap") {
-    if (signal.topic === "Temperature expectations") {
+    if (
+      signal.topic === "Temperature expectations" ||
+      signal.topic === "Remote-work readiness" ||
+      (signal.topic === "Noise expectations" && !listingDirectlyOverclaimsTopic(currentDescription, signal.topic))
+    ) {
       return "manager_only";
     }
     return "expectation_setting";
+  }
+
+  if (signal.topic === "Remote-work readiness" && !listingDirectlyOverclaimsTopic(currentDescription, signal.topic)) {
+    return "manager_only";
   }
 
   if (signal.type === "positive_highlight" || signal.type === "guest_experience_detail") {
@@ -3718,6 +4936,24 @@ function suggestedUseForSignal(signal: Signal): "positive_public_copy" | "expect
   }
 
   return "stop";
+}
+
+function listingDirectlyOverclaimsTopic(description: string, topic: string): boolean {
+  const normalized = normalizeTextForCoverage(description);
+
+  if (topic === "Noise expectations") {
+    return includesAnyNormalized(normalized, ["quiet", "calm", "peaceful", "soundproof", "very quiet", "quiet area"]);
+  }
+
+  if (topic === "Temperature expectations") {
+    return includesAnyNormalized(normalized, ["good air circulation", "well ventilated", "air conditioned", "air conditioning"]);
+  }
+
+  if (topic === "Remote-work readiness") {
+    return includesAnyNormalized(normalized, ["fast wifi", "strong wifi", "reliable wifi", "work remotely", "workspace"]);
+  }
+
+  return false;
 }
 
 function auditEvidenceSummary(state: AgentState): Record<string, unknown> {

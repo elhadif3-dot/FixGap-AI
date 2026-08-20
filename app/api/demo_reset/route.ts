@@ -1,4 +1,5 @@
 import { getListingById } from "@/lib/data";
+import { resetManagerInsightsForListing } from "@/lib/managerInsightStore";
 import { resetReviewCoverageForListing } from "@/lib/reviewCoverageStore";
 import { resetSimulatedListingPage } from "@/lib/simulatedStore";
 
@@ -14,7 +15,9 @@ export async function POST(request: Request) {
     return Response.json({ status: "error", error: "Listing not found." }, { status: 404 });
   }
 
-  resetReviewCoverageForListing(typeof body.session_id === "string" ? body.session_id : "api-default-session", listing.id);
+  const sessionId = typeof body.session_id === "string" ? body.session_id : "api-default-session";
+  resetReviewCoverageForListing(sessionId, listing.id);
+  resetManagerInsightsForListing(sessionId, listing.id);
 
   return Response.json({
     status: "ok",

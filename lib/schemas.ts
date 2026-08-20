@@ -29,6 +29,27 @@ export type SupervisorOutput = {
   required_change?: string;
 };
 
+export type EvidenceReasoningDecision = {
+  decision:
+    | "generate_listing_content"
+    | "create_manager_recommendation"
+    | "need_more_evidence"
+    | "no_justified_gap";
+  rationale: string;
+  evidence_topics: string[];
+  proposed_description_addition?: string | null;
+  proposed_description_replacement?: string | null;
+  manager_recommendations?: Array<{
+    topic: string;
+    priority: "high" | "medium" | "low";
+    guestSignal: string;
+    suggestedAction: string;
+    businessValue: string;
+    evidenceCount: number;
+    evidence: string[];
+  }>;
+};
+
 export const ALLOWED_TOOL_NAMES = [
   "get_listing_data",
   "extract_claims",
@@ -91,6 +112,32 @@ export const SupervisorOutputSchema = z.object({
   decision: z.enum(["Approve", "Revise", "Block"]),
   rationale: z.string().min(1),
   required_change: z.string().optional()
+});
+
+export const EvidenceReasoningDecisionSchema = z.object({
+  decision: z.enum([
+    "generate_listing_content",
+    "create_manager_recommendation",
+    "need_more_evidence",
+    "no_justified_gap"
+  ]),
+  rationale: z.string().min(1),
+  evidence_topics: z.array(z.string()).default([]),
+  proposed_description_addition: z.string().nullable().optional(),
+  proposed_description_replacement: z.string().nullable().optional(),
+  manager_recommendations: z
+    .array(
+      z.object({
+        topic: z.string().min(1),
+        priority: z.enum(["high", "medium", "low"]),
+        guestSignal: z.string().min(1),
+        suggestedAction: z.string().min(1),
+        businessValue: z.string().min(1),
+        evidenceCount: z.number().int().nonnegative(),
+        evidence: z.array(z.string()).default([])
+      })
+    )
+    .default([])
 });
 
 export type AgentNextAction = z.infer<typeof AgentNextActionSchema>;

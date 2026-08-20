@@ -1055,6 +1055,17 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     };
   }
 
+  if (typeof response.decision === "string" && step.module !== "Supervisor / Control Agent") {
+    return {
+      title: `LLM evidence decision: ${labelFromSnake(response.decision)}`,
+      action: response.decision,
+      rationale: stringValue(response.rationale),
+      observation: Array.isArray(response.evidence_topics)
+        ? `Evidence topics: ${arrayOfStrings(response.evidence_topics).join(", ") || "none"}.`
+        : undefined
+    };
+  }
+
   if (typeof response.decision === "string") {
     const decision = formatDecision(response.decision) ?? response.decision;
     return {
