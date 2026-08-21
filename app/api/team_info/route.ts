@@ -1,6 +1,6 @@
 export function GET() {
   return Response.json({
-    group_batch_order_number: "Batch3_08",
+    group_batch_order_number: "3_8",
     team_name: "Shoval, Daniel, Opal",
     students: [
       { name: process.env.TEAM_STUDENT_1_NAME ?? "Shoval Zvieli", email: process.env.TEAM_STUDENT_1_EMAIL ?? "shovalzvieli@campus.technion.ac.il" },
