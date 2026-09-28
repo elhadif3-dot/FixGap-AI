@@ -28,6 +28,7 @@ export type Review = {
 };
 
 export type Place = {
+  url?: string;
   placeName: string;
   category: string;
   rating: number | null;

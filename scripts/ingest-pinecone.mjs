@@ -11,6 +11,10 @@ import {
 
 loadLocalEnv();
 
+if (process.env.FIXGAP_LOCAL_ONLY === "true") {
+  throw new Error("Pinecone ingestion is blocked in local-only mode. The existing index must remain unchanged.");
+}
+
 const args = process.argv.slice(2);
 const argSet = new Set(args);
 if (!argSet.has("--confirm-paid")) {

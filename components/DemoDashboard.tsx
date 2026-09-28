@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { GuestAssessmentPanel } from "@/components/GuestAssessmentPanel";
+import { AgentTrace, type TraceSummary } from "@/components/AgentTrace";
 import {
   Bath,
   BedDouble,
@@ -46,15 +48,7 @@ type Props = {
   listingOptions: ListingOption[];
   managedCount: number;
   totalDatasetListings: number;
-};
-
-type TraceSummary = {
-  title: string;
-  action?: string;
-  rationale?: string;
-  observation?: string;
-  decision?: string;
-  status?: string;
+  guestAgentEnabled?: boolean;
 };
 
 type ConversationHistoryEntry = {
@@ -113,8 +107,9 @@ function promptExamples(listingName: string) {
   ];
 }
 
-export function DemoDashboard({ initialListings, listingOptions, totalDatasetListings }: Props) {
-  const [demoSessionId] = useState(() => createDemoSessionId());
+export function DemoDashboard({ initialListings, listingOptions, totalDatasetListings, guestAgentEnabled = false }: Props) {
+  const [mode, setMode] = useState<"guest" | "owner">(guestAgentEnabled ? "guest" : "owner");
+  const [demoSessionId] = useState(createDemoSessionId);
   const [listings, setListings] = useState(initialListings);
   const [selectedId, setSelectedId] = useState(initialListings[0]?.id ?? listingOptions[0]?.id ?? "");
   const [prompt, setPrompt] = useState(defaultPrompt);
@@ -382,7 +377,13 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
 
         <Gallery listing={selectedListing} />
 
-        <div className="contentGrid">
+        {guestAgentEnabled ? <div className="productMode" role="tablist" aria-label="מצב עבודה">
+          <button type="button" role="tab" aria-selected={mode === "guest"} onClick={() => setMode("guest")}>Guest Agent</button>
+          <button type="button" role="tab" aria-selected={mode === "owner"} onClick={() => setMode("owner")}>Owner Agent</button>
+        </div> : null}
+        {mode === "guest" ? <GuestAssessmentPanel key={selectedListing.id} listingId={selectedListing.id} sessionId={demoSessionId} /> : null}
+
+        <div className={`contentGrid${mode === "guest" ? " guestListingGrid" : ""}`}>
           <article className="listingContent">
             <section className="hostSection">
               <div>
@@ -444,7 +445,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
             </section>
           </article>
 
-          <aside className="sideRail">
+          {mode === "owner" ? <aside className="sideRail">
             <AgentFeatureBar
               prompt={prompt}
               setPrompt={updatePrompt}
@@ -458,7 +459,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
               onUseHistoryPrompt={updatePrompt}
             />
             <ReservationCard listing={selectedListing} />
-          </aside>
+          </aside> : null}
         </div>
       </main>
     </div>
@@ -730,7 +731,7 @@ function AgentResult({ result, auditLog }: { result: ExecuteResponse; auditLog: 
       <div className="responseBox">
         <h4>Agent response</h4>
         {decision ? <span className={`decision ${decision.toLowerCase()}`}>{decision}</span> : null}
-        <p>{result.response ?? result.error}</p>
+        <p dir="auto">{result.response ?? result.error}</p>
       </div>
 
       {pageUpdate ? (
@@ -840,42 +841,7 @@ function AgentResult({ result, auditLog }: { result: ExecuteResponse; auditLog: 
         </div>
       ) : null}
 
-      <div className="stepList">
-          <h4>Action Trace</h4>
-          {result.steps.length === 0 ? (
-            <div className="emptyState">
-              No runtime actions were recorded for this run.
-            </div>
-          ) : null}
-        {result.steps.map((step, index) => {
-          const summary = summarizeTraceStep(step);
-
-          return (
-          <details
-            className="stepBox"
-            key={`${step.module}-${index}`}
-            open={index < 2 || step.module.includes("Supervisor") || index === result.steps.length - 1}
-          >
-            <summary>
-              <span>Action {index + 1}</span>
-              <strong>{summary.title}</strong>
-            </summary>
-            <div className="traceSummary">
-              <div className="traceModule">{step.module}</div>
-              {summary.action ? <div>Selected action: <strong>{summary.action}</strong></div> : null}
-              {summary.decision ? <div>Supervisor decision: <strong>{summary.decision}</strong></div> : null}
-              {summary.status ? <div>Status: <strong>{summary.status}</strong></div> : null}
-              {summary.rationale ? <p>{summary.rationale}</p> : null}
-              {summary.observation ? <p>{summary.observation}</p> : null}
-            </div>
-            <details className="rawStep">
-              <summary>Raw API step payload</summary>
-              <pre>{JSON.stringify(step, null, 2)}</pre>
-            </details>
-          </details>
-          );
-        })}
-      </div>
+      <AgentTrace steps={result.steps} summarize={summarizeTraceStep} />
     </div>
   );
 }

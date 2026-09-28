@@ -4,6 +4,10 @@ import { loadLocalEnv } from "./env.mjs";
 
 loadLocalEnv();
 
+if (process.env.FIXGAP_LOCAL_ONLY === "true") {
+  throw new Error("Supabase seeding is blocked in local-only mode.");
+}
+
 const root = process.cwd();
 const dataDir = path.join(root, "data");
 const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");

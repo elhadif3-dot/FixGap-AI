@@ -1,4 +1,5 @@
 import type { AuditLogEntry, Listing, Place, SimulatedListingPage, SimulatedPageUpdate } from "@/lib/types";
+import { isLocalOnly } from "@/lib/runtimeMode";
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
 
@@ -7,7 +8,7 @@ export function isSupabaseConfigured(): boolean {
 }
 
 export function requireSupabaseRuntime(): boolean {
-  return process.env.REQUIRE_SUPABASE_RUNTIME === "true";
+  return !isLocalOnly() && process.env.REQUIRE_SUPABASE_RUNTIME === "true";
 }
 
 export function assertSupabaseConfiguredIfRequired(): void {
@@ -51,9 +52,28 @@ export async function fetchGooglePlacesFromSupabase(): Promise<Place[] | null> {
     return null;
   }
 
-  const rows = await supabaseRequest<Record<string, unknown>[]>("google_places", {
-    select: "*"
-  });
+  const rows: Record<string, unknown>[] = [];
+  const pageSize = 1000;
+  const maxPages = 100;
+  let offset = 0;
+  let complete = false;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result = await supabasePage<Record<string, unknown>>("google_places", {
+      select: "*", order: "id.asc", limit: pageSize, offset
+    });
+    rows.push(...result.rows);
+    offset += result.rows.length;
+    if (result.total !== null ? offset >= result.total : result.rows.length === 0) {
+      complete = true;
+      break;
+    }
+    if (result.rows.length === 0) {
+      throw new Error("Google Places pagination returned an incomplete empty page.");
+    }
+  }
+  if (!complete) {
+    throw new Error("Google Places pagination safety limit reached; refusing a partial dataset.");
+  }
 
   return rows.map((row) => ({
     placeName: stringValue(row.place_name),
@@ -67,6 +87,9 @@ export async function fetchGooglePlacesFromSupabase(): Promise<Place[] | null> {
 }
 
 export async function getSupabaseSimulatedPage(listing: Listing): Promise<SimulatedListingPage | null> {
+  if (isLocalOnly()) {
+    return null;
+  }
   if (!isSupabaseConfigured()) {
     assertSupabaseConfiguredIfRequired();
     return null;
@@ -91,6 +114,9 @@ export async function getSupabaseSimulatedPage(listing: Listing): Promise<Simula
 }
 
 export async function upsertSupabaseSimulatedPage(page: SimulatedListingPage): Promise<SimulatedListingPage> {
+  if (isLocalOnly()) {
+    return page;
+  }
   if (!isSupabaseConfigured()) {
     assertSupabaseConfiguredIfRequired();
     return page;
@@ -117,6 +143,9 @@ export async function upsertSupabaseSimulatedPage(page: SimulatedListingPage): P
 }
 
 export async function insertSupabaseAuditLog(audit: AuditLogEntry): Promise<AuditLogEntry> {
+  if (isLocalOnly()) {
+    return audit;
+  }
   if (!isSupabaseConfigured()) {
     assertSupabaseConfiguredIfRequired();
     return audit;
@@ -152,6 +181,9 @@ export async function insertSupabaseAuditLog(audit: AuditLogEntry): Promise<Audi
 }
 
 export async function fetchSupabaseAuditLogs(listingId?: string): Promise<AuditLogEntry[] | null> {
+  if (isLocalOnly()) {
+    return null;
+  }
   if (!isSupabaseConfigured()) {
     assertSupabaseConfiguredIfRequired();
     return null;
@@ -171,6 +203,25 @@ async function supabaseRequest<T>(
   params: QueryParams = {},
   options: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown; prefer?: string } = {}
 ): Promise<T> {
+  const response = await supabaseResponse(table, params, options);
+  return (await response.json()) as T;
+}
+
+async function supabasePage<T>(table: string, params: QueryParams): Promise<{ rows: T[]; total: number | null }> {
+  const response = await supabaseResponse(table, params, { prefer: "count=exact" });
+  const count = response.headers.get("content-range")?.split("/")[1];
+  const total = count && /^\d+$/.test(count) ? Number(count) : null;
+  return { rows: (await response.json()) as T[], total };
+}
+
+async function supabaseResponse(
+  table: string,
+  params: QueryParams,
+  options: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown; prefer?: string }
+): Promise<Response> {
+  if (isLocalOnly() && (options.method ?? "GET") !== "GET") {
+    throw new Error("Supabase writes are blocked in local-only mode.");
+  }
   const url = new URL(`${process.env.SUPABASE_URL!.replace(/\/$/, "")}/rest/v1/${table}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) {
@@ -179,6 +230,7 @@ async function supabaseRequest<T>(
   }
 
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(20_000),
     method: options.method ?? "GET",
     headers: {
       apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -194,7 +246,7 @@ async function supabaseRequest<T>(
     throw new Error(`Supabase ${table} request failed: HTTP ${response.status}. ${text.slice(0, 240)}`);
   }
 
-  return (await response.json()) as T;
+  return response;
 }
 
 function rowToListing(row: Record<string, unknown>): Listing {

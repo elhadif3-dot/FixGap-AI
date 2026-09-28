@@ -9,10 +9,13 @@ import {
   isSupabaseConfigured
 } from "@/lib/supabaseRuntime";
 import type { Listing, Place, Review } from "@/lib/types";
+import { categoryCounts, selectNearbyPlaces } from "@/lib/nearbySelection";
+import { retrieveOwnerExampleEvidence } from "@/lib/guestEvidence";
 
 let listingsCache: Listing[] | null = null;
 let reviewsCache: Review[] | null = null;
 let placesCache: Place[] | null = null;
+const localExampleCache = new Map<string, Promise<Review[]>>();
 
 const root = process.cwd();
 const dataDir = path.join(root, "data");
@@ -148,6 +151,17 @@ export async function getReviewSearchResult(
   query?: string,
   limit = 80
 ): Promise<{ reviews: Review[]; source: "pinecone" | "csv_fallback" }> {
+  if (process.env.LLM_PROVIDER === "gemini" || (!process.env.LLM_PROVIDER && process.env.GEMINI_API_KEY)) {
+    let pending = localExampleCache.get(listingId);
+    if (!pending) {
+      pending = getLocalReviewsForListing(listingId).then((reviews) => retrieveOwnerExampleEvidence(listingId, reviews))
+        .then((result) => result.evidence.map((review) => ({ listingId: review.listing_id,
+          id: review.review_id, date: review.date, comments: review.text })))
+        .catch((error) => { localExampleCache.delete(listingId); throw error; });
+      localExampleCache.set(listingId, pending);
+    }
+    return { reviews: (await pending).slice(0, limit), source: "pinecone" };
+  }
   const pineconeReviews = await queryPineconeReviews({
     listingId,
     query: query || `Guest reviews for Lisbon Airbnb listing ${listingId}`,
@@ -176,22 +190,30 @@ export async function getReviewsForListing(listingId: string, query?: string, li
 }
 
 export async function getPlacesNearListing(listing: Listing, limit = 8, radiusKm = 2): Promise<Place[]> {
+  return (await getNearbyEvidence(listing, limit, radiusKm)).places;
+}
+
+export async function getNearbyEvidence(listing: Listing, limit = 8, radiusKm = 2) {
   const supabasePlaces = await fetchGooglePlacesFromSupabase();
   const sourcePlaces = supabasePlaces ?? (await getLocalPlaces());
-
-  return sourcePlaces
+  const nearby = sourcePlaces
+    .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
+      && Math.abs(place.latitude) <= 90 && Math.abs(place.longitude) <= 180)
     .map((place) => ({
       ...place,
       distanceKm: distanceKm(listing.latitude, listing.longitude, place.latitude, place.longitude)
     }))
-    .filter((place) => (place.distanceKm ?? Infinity) <= radiusKm)
-    .sort((a, b) => {
-      const scoreA = (a.rating ?? 0) * Math.log10(a.numberOfReviews + 10);
-      const scoreB = (b.rating ?? 0) * Math.log10(b.numberOfReviews + 10);
-      return scoreB - scoreA;
-    })
-    .filter((place, index, places) => places.findIndex((item) => item.placeName === place.placeName) === index)
-    .slice(0, limit);
+    .filter((place) => (place.distanceKm ?? Infinity) <= radiusKm);
+  const selected = selectNearbyPlaces(nearby, limit);
+  return {
+    places: selected,
+    audit: {
+      source: supabasePlaces ? "supabase" : "local_csv", radius_km: radiusKm,
+      source_count: sourcePlaces.length, in_radius_count: nearby.length,
+      source_categories: categoryCounts(sourcePlaces), in_radius_categories: categoryCounts(nearby),
+      selected_categories: categoryCounts(selected), selected_count: selected.length
+    }
+  };
 }
 
 async function getLocalPlaces(): Promise<Place[]> {
@@ -201,6 +223,7 @@ async function getLocalPlaces(): Promise<Place[]> {
     placesCache = objects
       .filter((row) => row.place_name && row.lat && row.long)
       .map((row) => ({
+        url: row.url,
         placeName: cleanText(row.place_name),
         category: row.category,
         rating: asNumber(row.rating),

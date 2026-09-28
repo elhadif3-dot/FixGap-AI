@@ -13,6 +13,61 @@
   --shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
+.productMode { display: flex; gap: 4px; margin: 24px 0; border-bottom: 1px solid var(--line); }
+.productMode button { background: transparent; padding: 12px 16px; border-bottom: 3px solid transparent; cursor: pointer; color: var(--muted); }
+.productMode button[aria-selected="true"] { border-color: var(--air); color: var(--ink); font-weight: 700; }
+.guestListingGrid { grid-template-columns: minmax(0, 1fr) !important; }
+.guestAssessment { padding: 8px 0 28px; border-bottom: 1px solid var(--line); }
+.guestAssessmentHeader { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.guestAssessmentHeader > div { flex: 1; min-width: 0; }
+.guestEyebrow { font-size: 13px; font-weight: 700; color: var(--air-dark); }
+.guestAssessmentHeader h2 { margin: 8px 0 14px; font-size: 26px; letter-spacing: 0; }
+.guestAssessment .primaryButton { display: inline-flex; align-items: center; gap: 8px; width: auto; max-width: 100%; padding: 12px 20px; min-height: 44px; flex: 0 0 auto; border-radius: 6px; }
+.guestProgress, .guestError { display: flex; align-items: center; gap: 12px; padding: 18px 0; line-height: 1.6; }
+.guestProgress span { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--air); border-radius: 50%; animation: guestSpin 1s linear infinite; }
+.guestError { color: var(--red); overflow-wrap: anywhere; }
+.guestReportMeta { display: flex; flex-wrap: wrap; gap: 10px 24px; font-size: 13px; color: var(--muted); margin: 16px 0; }
+.guestReportMeta span { display: inline-flex; gap: 6px; align-items: center; }
+.guestSummary { font-size: 18px; line-height: 1.9; max-width: 900px; }
+.guestFindingUpdate { border-inline-start: 3px solid var(--green); padding-inline-start: 12px; margin-top: 16px; }
+.guestFindingUpdate.contradicts { border-color: var(--red); }
+.guestFindingUpdate.adds_context { border-color: var(--gold); }
+.guestContradictionNotice { border-inline-start: 3px solid var(--red); padding-inline-start: 12px; line-height: 1.8; }
+.guestFindings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
+.guestFinding { border: 1px solid #e4e4e4; border-radius: 6px; padding: 20px; min-width: 0; }
+.guestFindingTitle { display: flex; gap: 10px; align-items: flex-start; }
+.guestFindingTitle svg { flex-shrink: 0; margin-top: 2px; color: var(--gold); }
+.guestFinding.strength .guestFindingTitle svg { color: var(--green); }
+.guestFinding.drawback .guestFindingTitle svg { color: var(--red); }
+.guestFinding h3, .guestNeighborhood h3, .guestFit h3, .guestQuestions h3 { margin: 0 0 12px; font-size: 18px; }
+.guestFinding p, .guestNeighborhood p, .guestFit p { line-height: 1.8; margin: 10px 0; }
+.guestInterpretation { color: #555; border-inline-start: 2px solid var(--line); padding-inline-start: 12px; }
+.guestFindingMeta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 16px 0; }
+.guestAssessment summary { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; font-weight: 600; padding: 8px 0; }
+.guestAssessment blockquote { margin: 12px 0 6px; padding: 10px 12px; background: var(--soft); border-inline-start: 2px solid var(--line); line-height: 1.7; overflow-wrap: anywhere; font-size: 14px; }
+.guestQuote small { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.guestListingClaim { margin-top: 12px; font-size: 13px; }
+.guestNeighborhood, .guestFit, .guestQuestions { border-top: 1px solid var(--line); padding: 24px 0; }
+.guestNeighborhood h3 { display: flex; align-items: center; gap: 8px; }
+.guestPlaces { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 24px; }
+.guestPlaces a { display: flex; flex-direction: column; gap: 7px; text-decoration: none; color: var(--ink); padding: 16px 0; border-bottom: 1px solid #eee; min-width: 0; }
+.guestPlaces strong { font-size: 14px; overflow-wrap: anywhere; }
+.guestPlaces span, .guestPlaces small { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.guestQuestions li { margin-bottom: 12px; line-height: 1.7; }
+.guestMethod { border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); }
+.guestMethod p { font-size: 13px; line-height: 1.7; }
+.guestMethod ol { list-style: none; padding: 0; }
+.guestMethod li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; font-size: 13px; }
+.guestMethod li small { margin-inline-start: auto; }
+@keyframes guestSpin { to { transform: rotate(360deg); } }
+@media (max-width: 700px) {
+  .guestAssessmentHeader { align-items: flex-start; flex-direction: column; }
+  .guestAssessmentHeader h2 { font-size: 22px; }
+  .guestFindings, .guestPlaces { grid-template-columns: minmax(0, 1fr); }
+  .guestSummary { font-size: 16px; }
+  .productMode button { font-size: 12px; padding: 12px 8px; }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1092,6 +1147,7 @@ button {
   display: grid;
   gap: 10px;
   margin-top: 12px;
+  min-width: 0;
 }
 
 .stepList > h4 {
@@ -1099,7 +1155,7 @@ button {
   font-size: 14px;
 }
 
-.stepBox summary {
+.stepList .stepBox > summary {
   display: grid;
   gap: 3px;
   cursor: pointer;
@@ -1126,12 +1182,14 @@ button {
   line-height: 1.42;
 }
 
-.traceSummary p {
+.stepList .traceSummary p {
   margin: 0;
 }
 
 .traceModule {
   width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   border-radius: 999px;
   padding: 4px 8px;
   background: var(--soft);
@@ -1146,7 +1204,7 @@ button {
   padding-top: 8px;
 }
 
-.rawStep summary {
+.stepList .rawStep > summary {
   display: block;
   color: var(--muted);
   font-size: 12px;

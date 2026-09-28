@@ -1,4 +1,6 @@
 import type { AgentStep } from "@/lib/types";
+import { requestGeminiJson } from "@/lib/geminiClient";
+import { assertNoArabicLetters } from "@/lib/narrativeLanguage";
 
 type LlmMessage = {
   role: "system" | "user";
@@ -9,6 +11,9 @@ type LlmJsonOptions<T> = {
   module: string;
   messages: LlmMessage[];
   mockResponse: T;
+  validate?: (output: unknown) => T;
+  responseJsonSchema?: Record<string, unknown>;
+  maxOutputTokens?: number;
 };
 
 type LlmJsonResult<T> = {
@@ -40,9 +45,14 @@ export async function callLlmJson<T>(options: LlmJsonOptions<T>): Promise<T> {
 export async function callLlmJsonWithTrace<T>({
   module,
   messages,
-  mockResponse
+  mockResponse,
+  validate,
+  responseJsonSchema,
+  maxOutputTokens
 }: LlmJsonOptions<T>): Promise<LlmJsonResult<T>> {
-  const effectivePrompt = effectivePromptParts(messages);
+  const ownerHebrew = !/guest|supervisor/i.test(module);
+  const effectivePrompt = effectivePromptParts(ownerHebrew ? [...messages, { role: "system", content:
+    "Write user-facing rationale, guestSignal, suggestedAction and businessValue in natural Hebrew without Arabic letters. Keep JSON keys, action names, enums, topic, evidence_topics and other internal identifiers in English. Keep source quotations and listing-description copy in their original language. Do not translate machine identifiers." }] : messages);
 
   if (process.env.LLM_MODE !== "live" || !isLiveModuleEnabled(module)) {
     return {
@@ -53,6 +63,14 @@ export async function callLlmJsonWithTrace<T>({
     };
   }
 
+  const provider = process.env.LLM_PROVIDER || (process.env.GEMINI_API_KEY ? "gemini" : "llmod");
+  if (provider === "gemini") {
+    return requestJsonFromGemini(module, effectivePrompt, validate, responseJsonSchema, maxOutputTokens);
+  }
+  if (provider !== "llmod") {
+    throw new Error("Unsupported LLM_PROVIDER. Use gemini or llmod.");
+  }
+
   const apiKey = process.env.LLMOD_API_KEY;
   const baseUrl = process.env.LLMOD_BASE_URL;
 
@@ -61,6 +79,9 @@ export async function callLlmJsonWithTrace<T>({
   }
 
   const result = await requestJsonFromLlm<T>(module, baseUrl, apiKey, effectivePrompt, mockResponse);
+  if (validate) {
+    result.output = validate(result.output);
+  }
   const step = result.steps.at(-1) ?? null;
 
   return {
@@ -69,6 +90,84 @@ export async function callLlmJsonWithTrace<T>({
     step,
     steps: result.steps
   };
+}
+
+async function requestJsonFromGemini<T>(
+  module: string,
+  prompt: { system_prompt: string; user_prompt: string },
+  validate?: (output: unknown) => T,
+  responseJsonSchema?: Record<string, unknown>,
+  maxOutputTokens?: number
+): Promise<LlmJsonResult<T>> {
+  const steps: AgentStep[] = [];
+  let effective = prompt;
+  let lastValidationError = "No usable JSON object was returned.";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const startedAt = Date.now();
+    const result = await requestGeminiJson({
+      systemPrompt: effective.system_prompt, userPrompt: effective.user_prompt, responseJsonSchema, maxOutputTokens
+    }).catch((error: unknown) => {
+      steps.push({ module, prompt: effective, response: { llm_call: true, attempt, provider: "gemini",
+        error: "provider_request_failed", message: error instanceof Error ? error.message : "Model request failed.",
+        elapsed_ms: Date.now() - startedAt, retry_planned: false } });
+      throw Object.assign(new Error(`${module}: ${error instanceof Error ? error.message : "Model request failed."}`), { steps });
+    });
+    const parsed = parseJsonObject<unknown>(result.content);
+    let validationError = result.finishReason === "MAX_TOKENS"
+      ? (/guest/i.test(module)
+        ? "The output was cut off at the token limit. Return a shorter complete object: fewer findings, brief explanations and one or two supplied citation IDs per finding."
+        : "The output was cut off at the token limit. Return a shorter complete object: fewer findings, brief explanations and one or two short exact quotes per finding.")
+      : "Return one JSON object, not an array, null, or plain text.";
+    let output: T | undefined;
+    let valid = false;
+    if (result.finishReason !== "MAX_TOKENS" && parsed.ok && parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)) {
+      try {
+        output = validate ? validate(parsed.value) : parsed.value as T;
+        if (!/guest|supervisor/i.test(module)) {
+          const texts: string[] = [];
+          const visit = (value: unknown) => {
+            if (!value || typeof value !== "object") return;
+            for (const [key, child] of Object.entries(value)) {
+              if (["rationale", "guestSignal", "suggestedAction", "businessValue"].includes(key) && typeof child === "string") texts.push(child);
+              else if (child && typeof child === "object") visit(child);
+            }
+          };
+          visit(output); assertNoArabicLetters(texts);
+          if (texts.some((text) => text.trim() && !/[\u0590-\u05FF]/.test(text))) {
+            throw new Error("Write the user-facing rationale, guestSignal, suggestedAction and businessValue in Hebrew. Preserve machine identifiers and source quotations.");
+          }
+        }
+        valid = true;
+      } catch (error) {
+        validationError = error instanceof Error ? error.message.slice(0, 800) : "Schema validation failed.";
+      }
+    }
+    lastValidationError = validationError;
+    steps.push({
+      module, prompt: effective,
+      response: {
+        ...(valid ? liveStepResponse(output, attempt) as Record<string, unknown> : {
+          llm_call: true, attempt, error: "invalid_json_or_schema", retry_planned: attempt < 2,
+          validation_error: validationError, raw_response: result.content.slice(0, 12_000),
+          ...(parsed.ok ? { parsed_output: parsed.value } : {})
+        }),
+        provider: "gemini", model: result.model, usage: result.usage, finish_reason: result.finishReason,
+        elapsed_ms: Date.now() - startedAt,
+        ...(valid && /guest/i.test(module) && parsed.ok ? { wire_output: parsed.value } : {})
+      }
+    });
+    if (valid) {
+      return { output: output as T, calledLive: true, step: steps.at(-1) ?? null, steps };
+    }
+    effective = {
+      system_prompt: `${prompt.system_prompt}\n\nCorrect the reported JSON, schema or provenance validation failures. Preserve supported meaning; do not invent facts.`
+        + (/guest/i.test(module) ? " For unsupported listing comparisons, copy a valid exact source quotation or set listing_claim to null and alignment to no_claim. Review-backed observations may remain without a listing comparison. For evidence, select valid supplied citation_id values that actually support the finding; never generate review quote text or invent source IDs." : ""),
+      user_prompt: JSON.stringify({ original_request: prompt.user_prompt, validation_error: validationError,
+        previous_invalid_output: result.content.slice(0, 12_000) })
+    };
+  }
+  // A live failure must never be silently presented as a successful mock result.
+  throw Object.assign(new Error(`Gemini returned invalid JSON/schema for ${module} after two attempts. ${lastValidationError}`), { steps });
 }
 
 async function requestJsonFromLlm<T>(

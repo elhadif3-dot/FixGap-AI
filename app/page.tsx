@@ -37,6 +37,7 @@ export default async function Home() {
       listingOptions={listingOptions}
       managedCount={managedListings.length}
       totalDatasetListings={allListings.length}
+      guestAgentEnabled
     />
   );
 }

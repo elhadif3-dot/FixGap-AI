@@ -83,6 +83,26 @@ function getPineconeClient(): Pinecone {
   return pineconeClient;
 }
 
+export async function queryReviewsByExample(input: {
+  listingId: string; reviewId: string; topK: number; reviewIds?: string[];
+}): Promise<Review[]> {
+  if (!isPineconeReviewsConfigured()) throw new Error("Guest assessment requires the existing Pinecone review index.");
+  const target = getPineconeClient().index(pineconeReviewIndexName())
+    .namespace(process.env.PINECONE_REVIEW_NAMESPACE || process.env.PINECONE_NAMESPACE || "airbnb-reviews");
+  const result = await target.query({
+    id: `review-${input.listingId}-${input.reviewId}`, topK: input.topK, includeMetadata: true,
+    filter: { listing_id: { $eq: input.listingId }, source: { $eq: "airbnb_review" },
+      ...(input.reviewIds ? { review_id: { $in: input.reviewIds } } : {}) }
+  });
+  return result.matches.flatMap((match) => {
+    const metadata = match.metadata;
+    if (String(metadata?.listing_id) !== input.listingId || metadata?.source !== "airbnb_review"
+      || !metadata.review_id || typeof metadata.text !== "string"
+      || (input.reviewIds && !input.reviewIds.includes(String(metadata.review_id)))) return [];
+    return [{ listingId: input.listingId, id: String(metadata.review_id), date: String(metadata.date || ""), comments: metadata.text }];
+  });
+}
+
 function pineconeReviewIndexName(): string {
   return process.env.PINECONE_REVIEW_INDEX || process.env.PINECONE_INDEX || "";
 }

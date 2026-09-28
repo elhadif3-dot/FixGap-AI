@@ -114,7 +114,8 @@ function canonicalIssueKey(recommendation: ManagerRecommendation): string {
   if (/check-?in|front desk|reception|staff|service/.test(text)) return "service";
   if (/coffee|kettle|hot drink/.test(text)) return "coffee";
 
-  return safeKey(recommendation.topic.toLowerCase());
+  return recommendation.topic.normalize("NFKC").toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
 }
 
 function priorityRank(priority: ManagerRecommendation["priority"]): number {

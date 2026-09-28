@@ -37,6 +37,7 @@ export type EvidenceReasoningDecision = {
     | "no_justified_gap";
   rationale: string;
   evidence_topics: string[];
+  candidate_signals?: Array<{ topic: string; type: string; observation: string; review_ids: string[] }>;
   proposed_description_addition?: string | null;
   proposed_description_replacement?: string | null;
   manager_recommendations?: Array<{
@@ -123,6 +124,12 @@ export const EvidenceReasoningDecisionSchema = z.object({
   ]),
   rationale: z.string().min(1),
   evidence_topics: z.array(z.string()).default([]),
+  candidate_signals: z.array(z.object({
+    topic: z.string(),
+    type: z.string(),
+    observation: z.string(),
+    review_ids: z.array(z.string()).default([])
+  })).optional(),
   proposed_description_addition: z.string().nullable().optional(),
   proposed_description_replacement: z.string().nullable().optional(),
   manager_recommendations: z

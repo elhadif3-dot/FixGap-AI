@@ -1,11 +1,14 @@
 import { executeListingAgentWithOptions } from "@/lib/agent";
 import type { AgentStep, ExecuteResponse, ReviewCoverageSnapshot } from "@/lib/types";
+import { isLocalOnly } from "@/lib/runtimeMode";
+import { ownerResponseInHebrew } from "@/lib/ownerPresentation";
 
 type PublicExecuteResponse = {
   status: "ok" | "error";
   error: string | null;
   response: string | null;
   steps: AgentStep[];
+  review_coverage_state?: ReviewCoverageSnapshot;
 };
 
 const DEFAULT_SERVER_BUDGET_MS = 240_000;
@@ -60,8 +63,9 @@ function toPublicExecuteResponse(result: ExecuteResponse): PublicExecuteResponse
   return {
     status: result.status,
     error: result.error,
-    response: result.response,
-    steps: filterRealLlmSteps(result.steps)
+    response: ownerResponseInHebrew(result),
+    steps: filterRealLlmSteps(result.steps),
+    ...(result.review_coverage_state ? { review_coverage_state: result.review_coverage_state } : {})
   };
 }
 

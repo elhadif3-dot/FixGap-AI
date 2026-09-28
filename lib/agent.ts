@@ -9,6 +9,8 @@ import {
 import { enforceGuardrails, validateProposal } from "@/lib/guardrails";
 import { callLlmJsonWithTrace } from "@/lib/llmClient";
 import { getManagerInsights, mergeManagerInsights } from "@/lib/managerInsightStore";
+import { hasNearbyPlaceName, hasRepeatedNearbyPlace, isHebrewOwnerDescription, labelMentionedNearbyPlaces } from "@/lib/ownerListingCopy";
+import { sampleOwnerReviewWindow, validateOwnerSignalCandidates, type OwnerReviewSample } from "@/lib/ownerSemanticSignals";
 import { EVIDENCE_REASONING_SYSTEM_PROMPT, LISTING_EDITOR_SYSTEM_PROMPT, SUPERVISOR_SYSTEM_PROMPT } from "@/lib/prompts";
 import { classifyPromptScope } from "@/lib/requestScope";
 import {
@@ -862,6 +864,11 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       if (!state.listing) {
         throw new Error("Cannot search reviews before listing data is loaded.");
       }
+      if (state.intent.includes("review_alignment") && state.reviewSearchStats) {
+        state.proposal = stopProposal(state.listing.id,
+          "This run already used one review window. Run again to inspect the next window.");
+        return true;
+      }
 
       const reviewResult = await runAdaptiveReviewSearch(state);
       const reviews = reviewResult.reviews;
@@ -1150,19 +1157,24 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
 
     case "replan": {
       state.reviseCount += 1;
-      state.requireMoreEvidence = true;
+      const reuseCurrentWindow = state.intent.includes("review_alignment") && Boolean(state.reviews?.length);
+      state.requireMoreEvidence = !reuseCurrentWindow;
       state.rejectedTopics = [
         ...(state.rejectedTopics ?? []),
         ...topicsRejectedBySupervisor(state.proposal, state.supervisor)
       ].filter((topic, index, topics) => topics.indexOf(topic) === index);
       state.supervisor = undefined;
       state.proposal = undefined;
-      state.signals = undefined;
-      state.reviews = undefined;
-      state.relevantReviews = undefined;
+      if (!reuseCurrentWindow) {
+        state.signals = undefined;
+        state.reviews = undefined;
+        state.relevantReviews = undefined;
+      }
       steps.push(step("Edit & Decision Tools", "Replan after Supervisor requested revision.", JSON.stringify(actionRequest.tool_input), {
         replan_count: state.reviseCount,
-        next_observation_needed: "Retrieve more focused Airbnb review evidence before drafting again."
+        next_observation_needed: reuseCurrentWindow
+          ? "Revise the proposal using the current review window; the next window belongs to the next run."
+          : "Retrieve more focused Airbnb review evidence before drafting again."
       }));
       return true;
     }
@@ -1328,11 +1340,13 @@ function inferIntent(prompt: string): string[] {
     );
   }
 
-  if (topics.length > 0) {
+  if (topics.some((topic) => ["restore_original", "restore_previous", "copy_polish"].includes(topic))
+    || /\b(?:only|specifically|focus on)\b|רק|התמקד/.test(normalized)) {
     return topics;
   }
 
-  return ["review_alignment", "location", "hills", "stairs", "noise", "wifi", "comfort", "temperature", "view", "service", "property_quality"];
+  return Array.from(new Set(["review_alignment", "location", "hills", "stairs", "noise", "wifi",
+    "cleanliness", "comfort", "temperature", "view", "space", "service", "property_quality", "nearby_highlights", ...topics]));
 }
 
 function isEvidenceOnlyPrompt(prompt: string): boolean {
@@ -1523,11 +1537,15 @@ async function runAdaptiveReviewSearch(
   state.nextReviewCoverageState = coverage.snapshot;
 
   const mergedByKey = new Map<string, Review>();
+  const windowIds = new Set(coverage.reviews.map((review) => review.id || `${review.listingId}:${review.comments.slice(0, 80)}`));
   for (const review of coverage.reviews) {
     mergedByKey.set(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`, review);
   }
 
   for (const review of semanticByKey.values()) {
+    if (state.intent.includes("review_alignment") && !windowIds.has(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`)) {
+      continue;
+    }
     if (mergedByKey.size >= plan.maxUniqueReviews) {
       break;
     }
@@ -1818,6 +1836,15 @@ function formatPlaceForGuestCopy(place: Place): string {
   const reviews = place.numberOfReviews > 0 ? `, ${place.numberOfReviews} Google reviews` : "";
   const distance = approximateDistance(place.distanceKm);
   return `${place.placeName} (${rating}${reviews}${distance})`;
+}
+
+function ownerNearbyCategoryLabel(category: string): string {
+  if (/dining/i.test(category)) return "מקום אוכל";
+  if (/nightlife/i.test(category)) return "מקום בילוי לילי";
+  if (/culture/i.test(category)) return "אתר תרבות";
+  if (/parks?_recreation/i.test(category)) return "פארק או אתר פנאי";
+  if (/wellness_lifestyle/i.test(category)) return "מקום כושר או בריאות";
+  return "מקום בסביבה";
 }
 
 function approximateDistance(distanceKm?: number): string {
@@ -2897,6 +2924,25 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
     return false;
   }
 
+  const hebrewCoverage: Record<string, RegExp> = {
+    "Historic Lisbon hills": /גבע|מדרון|עליות/,
+    "Access and stairs expectations": /מדרגות|מעלית|גישה לנכס/,
+    "Noise expectations": /רעש|שוקק/,
+    "Space expectations": /קומפקט|חדרים קטנים|חדר קטן/,
+    "Guest-confirmed walkable location": /מיקום מרכזי|מרחק הליכה|נגיש ברגל|לחקור את העיר ברגל/,
+    "Guest-mentioned view": /נוף|תצפית/,
+    "Guest-confirmed cleanliness": /ניקיון|נקיים|נקי|נקיות/,
+    "Guest-confirmed comfort": /נוחות|נוחים|נוח|מיטות/,
+    "Remote-work readiness": /עבודה מרחוק|אינטרנט|וויי?פיי/,
+    "Rated nearby guest options": /(?:בקרבת|בסביבת|בסביבה).*(?:מקום|אתר|דירוג|ביקורות)/,
+    "Rated nearby dining options": /(?:מסעד|בתי קפה|מקום אוכל).*(?:בקרבת|בסביבה|קרוב)/,
+    "Guest-confirmed staff helpfulness": /צוות|קבלה|שירות אדיב/,
+    "Guest-confirmed smooth arrival": /צ'ק.?אין|מזוודות|מטען/,
+    "Guest-confirmed value": /תמורה|ערך ביחס למחיר/,
+    "Guest-confirmed refreshed property quality": /משופצ|מחודש|חדרים חדשים/
+  };
+  if (hebrewCoverage[topic]?.test(description)) return true;
+
   const normalized = normalizeTextForCoverage(description);
   const includesAny = (patterns: string[]) => patterns.some((pattern) => normalized.includes(pattern));
 
@@ -3285,6 +3331,7 @@ async function draftEditWithEvidenceReasoning(
 
   if (
     state.reviewSearchStats?.coverageComplete &&
+    !state.intent.includes("review_alignment") &&
     (fallbackProposal.action === "stop_without_action" || fallbackProposal.action === "request_more_evidence")
   ) {
     return stopProposal(state.listing.id, completedReviewCoverageStopReason(state));
@@ -3292,16 +3339,24 @@ async function draftEditWithEvidenceReasoning(
 
   const reasoning = await callEvidenceReasoningLlm(state, "listing_edit", fallbackDecision, steps);
 
-  if (
-    reasoning.decision === "need_more_evidence" &&
-    state.reviseCount < 2 &&
-    state.reviewSearchStats?.coverageComplete !== true
-  ) {
-    prepareFollowUpEvidenceSearch(state, reasoning.rationale);
-    return null;
+  if (reasoning.decision === "need_more_evidence") {
+    if (state.intent.includes("review_alignment")) {
+      return stopProposal(state.listing.id,
+        `${coverageProgressSentence(state.reviewSearchStats)}No supported description change was found in this window. Run again to inspect the next window.`);
+    }
+    if (state.reviseCount < 2 && state.reviewSearchStats?.coverageComplete !== true) {
+      prepareFollowUpEvidenceSearch(state, reasoning.rationale);
+      return null;
+    }
+    return stopProposal(state.listing.id, "The available evidence does not justify an edit.");
   }
 
-  if (reasoning.decision === "generate_listing_content" && reasoningTopicsAlreadyCovered(state, reasoning)) {
+  if (reasoning.decision === "generate_listing_content" && isHebrewOwnerDescription(currentDescription) &&
+    reasoningTopicsAlreadyCovered(state, reasoning)) {
+    if (state.intent.includes("review_alignment")) {
+      return stopProposal(state.listing.id,
+        `${coverageProgressSentence(state.reviewSearchStats)}These positive topics are already represented in the current description. Run again to inspect the next window.`);
+    }
     if (state.reviseCount < 2 && state.reviewSearchStats?.coverageComplete !== true) {
       prepareFollowUpEvidenceSearch(
         state,
@@ -3481,6 +3536,34 @@ async function callEvidenceReasoningLlm(
   }
 
   let decision: EvidenceReasoningDecision = parsed.data;
+  if (result.calledLive && mode === "listing_edit" && state.intent.includes("review_alignment")) {
+    const samples = payload.review_discovery_samples as OwnerReviewSample[];
+    const submitted = decision.candidate_signals ?? [];
+    const validated = validateOwnerSignalCandidates(submitted, samples);
+    const acceptedTopics = new Set(validated.map((signal) => signal.topic));
+    const invalidTopicUsed = submitted.some((signal) =>
+      !acceptedTopics.has(signal.topic.trim()) && decision.evidence_topics.includes(signal.topic));
+    const operationalTopicUsed = validated.some((signal) =>
+      signal.type === "accuracy_gap" && decision.evidence_topics.includes(signal.topic) &&
+      !state.signals?.some((existing) => existing.topic === signal.topic));
+    if (invalidTopicUsed || operationalTopicUsed) {
+      return { ...decision, decision: "no_justified_gap",
+        rationale: invalidTopicUsed
+          ? "A proposed new signal lacked two distinct source reviews from this window; no edit was applied."
+          : "An unfamiliar operational concern cannot be inserted into public listing copy without a separately verified listing overclaim.",
+        proposed_description_addition: null, proposed_description_replacement: null };
+    }
+    state.signals = [...(state.signals ?? []), ...validated.filter((signal) =>
+      !state.signals?.some((existing) => existing.topic.toLocaleLowerCase() === signal.topic.toLocaleLowerCase()))
+      .map((signal): Signal => ({ type: signal.type as Signal["type"], topic: signal.topic,
+        evidenceCount: signal.review_ids.length, primaryEvidenceCount: signal.review_ids.length,
+        evidence: signal.evidence, recommendation: signal.observation }))];
+    payload.validated_dynamic_signals = validated.map((signal) => ({ topic: signal.topic,
+      type: signal.type, observation: signal.observation, review_ids: signal.review_ids }));
+    steps.push(step("Owner signal validation", "Check proposed semantic signals against source review IDs from this window.",
+      JSON.stringify({ proposed: submitted.length }), { accepted: validated.length,
+        rejected: submitted.length - validated.length, accepted_topics: [...acceptedTopics] }));
+  }
   if (result.calledLive && publicListingCopyNeedsRepair(decision, payload)) {
     decision = await repairPublicListingCopyWithLlm(decision, payload, steps);
   }
@@ -3490,15 +3573,70 @@ async function callEvidenceReasoningLlm(
     decision = await repairCoveredTopicPaddingWithLlm(decision, payload, steps);
   }
 
-  if (result.calledLive && nearbyDetailsMissing(decision, payload)) {
+  if (result.calledLive && mode === "listing_edit" && nearbyDetailsMissing(decision, payload)) {
     const repaired = await repairNearbyDetailsWithLlm(decision, payload, steps);
-    const safeRepaired = stripUnsupportedPublicComplaintFallback(repaired, payload);
-    return nearbyDetailsMissing(safeRepaired, payload)
-      ? stripUnsupportedPublicComplaintFallback(appendNearbyDetailsFallback(safeRepaired, payload), payload)
-      : safeRepaired;
+    decision = stripUnsupportedPublicComplaintFallback(repaired, payload);
   }
 
-  return stripUnsupportedPublicComplaintFallback(appendNearbyDetailsFallback(decision, payload), payload);
+  decision = stripUnsupportedPublicComplaintFallback(decision, payload);
+  return result.calledLive && mode === "listing_edit"
+    ? ensureHebrewOwnerCopy(decision, payload, steps)
+    : decision;
+}
+
+async function ensureHebrewOwnerCopy(
+  decision: EvidenceReasoningDecision,
+  payload: Record<string, unknown>,
+  steps: AgentStep[]
+): Promise<EvidenceReasoningDecision> {
+  if (decision.decision !== "generate_listing_content") return decision;
+  const nearbyPlaces = Array.isArray(payload.nearby_google_places_context)
+    ? payload.nearby_google_places_context.filter((place): place is { name: string; category_hebrew: string } =>
+      typeof place === "object" && place !== null && "name" in place && typeof place.name === "string")
+    : [];
+  const withPlaceLabels = (candidate: EvidenceReasoningDecision): EvidenceReasoningDecision => ({
+    ...candidate,
+    proposed_description_replacement: candidate.proposed_description_replacement
+      ? labelMentionedNearbyPlaces(candidate.proposed_description_replacement, nearbyPlaces)
+      : candidate.proposed_description_replacement
+  });
+  const validCopy = (candidate: EvidenceReasoningDecision) => {
+    const copy = candidate.proposed_description_replacement ?? "";
+    const mentionedPlaces = nearbyPlaces.filter((place) => copy.toLocaleLowerCase().includes(place.name.toLocaleLowerCase()));
+    return candidate.decision === "generate_listing_content" && !candidate.proposed_description_addition &&
+      copy.length <= 1800 && isHebrewOwnerDescription(copy) && !hasRepeatedNearbyPlace(copy, nearbyPlaces) &&
+      mentionedPlaces.length <= 2 && mentionedPlaces.every((place) => copy.includes(place.category_hebrew)) &&
+      (!(shouldIncludeNearbyDetails(payload) || payload.current_listing_has_specific_nearby_places === true) ||
+        hasNearbyPlaceName(copy, nearbyPlaces));
+  };
+  const labeledDecision = withPlaceLabels(decision);
+  if (validCopy(labeledDecision)) return labeledDecision;
+
+  const result = await callLlmJsonWithTrace<EvidenceReasoningDecision>({
+    module: "Autonomous Listing Editor Agent - Hebrew copy repair",
+    messages: [
+      { role: "system", content: [EVIDENCE_REASONING_SYSTEM_PROMPT,
+        "Correction for Owner mode only: return a single complete proposed_description_replacement in Hebrew, not an addition. Translate the source description faithfully and integrate only supported new review signals. Keep proper names unchanged, avoid repeated claims or venue names, and never invent facts.",
+        "If nearby places are supplied, briefly identify each mentioned place by its supplied category (not a guessed subtype). Include at most two relevant places once; retain already-mentioned nearby places rather than swapping them on later review windows. Do not copy English boilerplate from the previous decision. Set proposed_description_addition to null."].join("\n\n") },
+      { role: "user", content: JSON.stringify({ previous_decision: decision,
+        original_listing_description: payload.original_listing_description,
+        current_listing_content: payload.current_listing_content,
+        detected_signals: payload.detected_signals,
+        uncovered_public_opportunities: payload.uncovered_public_opportunities,
+        validated_dynamic_signals: payload.validated_dynamic_signals,
+        nearby_google_places_context: payload.nearby_google_places_context,
+        current_listing_has_specific_nearby_places: payload.current_listing_has_specific_nearby_places }) }
+    ],
+    mockResponse: decision
+  });
+  steps.push(...result.steps);
+  const parsed = EvidenceReasoningDecisionSchema.safeParse(result.output);
+  if (parsed.success) {
+    const labeledRepair = withPlaceLabels(parsed.data);
+    if (validCopy(labeledRepair)) return labeledRepair;
+  }
+  return { ...decision, decision: "no_justified_gap", rationale: "The proposed Owner description failed Hebrew, nearby-context, or duplication checks; no page edit was applied.",
+    proposed_description_addition: null, proposed_description_replacement: null };
 }
 
 async function repairCoveredTopicPaddingWithLlm(
@@ -3525,6 +3663,7 @@ async function repairCoveredTopicPaddingWithLlm(
           current_listing_content: payload.current_listing_content,
           covered_public_topics: payload.covered_public_topics,
           uncovered_public_opportunities: payload.uncovered_public_opportunities,
+          validated_dynamic_signals: payload.validated_dynamic_signals,
           review_search_stats: payload.review_search_stats
         })
       }
@@ -3563,6 +3702,7 @@ async function repairPublicListingCopyWithLlm(
           previous_decision: decision,
           current_listing_content: payload.current_listing_content,
           detected_signals: payload.detected_signals,
+          validated_dynamic_signals: payload.validated_dynamic_signals,
           nearby_highlight_candidates: payload.nearby_highlight_candidates,
           public_copy_topic_guidance: payload.public_copy_topic_guidance
         })
@@ -3592,7 +3732,7 @@ async function repairNearbyDetailsWithLlm(
         content: [
           EVIDENCE_REASONING_SYSTEM_PROMPT,
           "Correction: you selected a nearby evidence topic but omitted supplied Google rating/review-count/distance details.",
-          "Return the same decision type, but rewrite the listing copy so the nearby sentence uses 2-3 exact strings from nearby_highlight_candidates."
+          "Return the same decision type, but write one complete Hebrew replacement. Mention at most two relevant nearby places by name and supplied category. Do not copy English candidate strings verbatim."
         ].join("\n\n")
       },
       {
@@ -3600,6 +3740,7 @@ async function repairNearbyDetailsWithLlm(
         content: JSON.stringify({
           previous_decision: decision,
           nearby_highlight_candidates: payload.nearby_highlight_candidates,
+          validated_dynamic_signals: payload.validated_dynamic_signals,
           current_listing_content: payload.current_listing_content
         })
       }
@@ -3612,7 +3753,7 @@ async function repairNearbyDetailsWithLlm(
   }
 
   const parsed = EvidenceReasoningDecisionSchema.safeParse(result.output);
-  return parsed.success ? parsed.data : appendNearbyDetailsFallback(decision, payload);
+  return parsed.success ? parsed.data : decision;
 }
 
 function evidenceReasoningPayload(
@@ -3624,6 +3765,7 @@ function evidenceReasoningPayload(
   const places = (state.relevantPlaces ?? []).slice(0, 6).map((place) => ({
     name: place.placeName,
     category: place.category,
+    category_hebrew: ownerNearbyCategoryLabel(place.category),
     rating: place.rating,
     google_review_count: place.numberOfReviews,
     approximate_distance_km: place.distanceKm === undefined ? null : Number(place.distanceKm.toFixed(2))
@@ -3631,9 +3773,8 @@ function evidenceReasoningPayload(
   const nearbySignals = (state.signals ?? []).filter(
     (signal) => signal.topic === "Rated nearby dining options" || signal.topic === "Rated nearby guest options"
   );
-  const nearbyHighlightCandidates = uniqueFormattedGooglePlaces(nearbySignals.flatMap((signal) => signal.evidence))
-    .slice(0, 4);
-  const currentListingHasSpecificNearbyPlaces = /\bGoogle reviews\b|\b\d(?:\.\d)?\/5\b|about \d+(?:\.\d+)? km away/i.test(currentDescription);
+  const nearbyHighlightCandidates = (state.relevantPlaces ?? []).slice(0, 4).map(formatPlaceForGuestCopy);
+  const currentListingHasSpecificNearbyPlaces = hasNearbyPlaceName(currentDescription, places);
   const nearbyGuestReviewSupportCount = nearbySignals.reduce((total, signal) => total + signal.primaryEvidenceCount, 0);
   const publicOpportunities = publicListingOpportunities(state.signals ?? [], currentDescription);
 
@@ -3643,6 +3784,8 @@ function evidenceReasoningPayload(
     listing_name: state.listing?.name ?? null,
     manager_prompt: state.prompt,
     current_listing_content: excerpt(currentDescription, 2200),
+    current_description_needs_hebrew_rewrite: !isHebrewOwnerDescription(currentDescription),
+    original_listing_description: excerpt(state.listing?.description ?? "", 2200),
     current_listing_has_specific_nearby_places: currentListingHasSpecificNearbyPlaces,
     extracted_current_claims: state.claims ?? null,
     review_search_stats: state.reviewSearchStats
@@ -3657,6 +3800,9 @@ function evidenceReasoningPayload(
     detected_signals: state.signals && state.page
       ? compactSignalBrief(state.signals, state.page.currentDescription)
       : [],
+    review_discovery_samples: mode === "listing_edit" && state.intent.includes("review_alignment")
+      ? sampleOwnerReviewWindow(state.reviews ?? [], state.listingId)
+      : [],
     manager_issue_candidates:
       mode === "manager_recommendations"
         ? compactManagerIssueCandidates(managerIssueCandidates)
@@ -3668,21 +3814,22 @@ function evidenceReasoningPayload(
     nearby_highlight_candidates: nearbyHighlightCandidates,
     nearby_guest_review_support_count: nearbyGuestReviewSupportCount,
     high_value_nearby_context_available:
-      nearbyHighlightCandidates.length > 0 && nearbyGuestReviewSupportCount >= 2 && !currentListingHasSpecificNearbyPlaces,
+      nearbyHighlightCandidates.length > 0 && !currentListingHasSpecificNearbyPlaces,
     public_copy_topic_guidance:
       "Use positive public-copy signals for description edits. Use operational complaint signals such as noise, Wi-Fi, cleaning issues, maintenance, or temperature as manager-only unless the current listing directly overclaims that topic.",
     repeated_run_guidance:
-      "Repeated end-to-end runs should continue into the next unseen review window when coverage is incomplete and the current window does not justify a fresh public edit. Stop only when coverage is complete or no justified gap remains after bounded follow-up.",
+      "End-to-end runs inspect one review window per user action. Add only a new evidence-backed description gap from this window; if none exists, stop and let the next user action inspect the next window.",
     decision_instructions:
       mode === "manager_recommendations"
         ? "Return 2-4 prioritized manager recommendations only. Use manager_issue_candidates and representative review evidence to choose the strongest fixable negative issues. Do not propose public listing copy."
         : "Return public listing copy only if it is attractive, concise, evidence-backed, and guest-facing. When uncovered_public_opportunities has several compatible positives, produce a substantial but compact improvement rather than one generic sentence. Operational complaints usually belong to manager recommendations, not description text.",
-    follow_up_limit_remaining: Math.max(0, 2 - state.reviseCount)
+    follow_up_limit_remaining: state.intent.includes("review_alignment") ? 0 : Math.max(0, 2 - state.reviseCount)
   };
 }
 
 function publicListingOpportunities(signals: Signal[], currentDescription: string): Array<Record<string, unknown>> {
-  return selectSignalsForBrief(signals)
+  return selectSignalsForBrief(signals.filter((signal) =>
+    signal.primaryEvidenceCount >= 2 && !descriptionAlreadyCoversSignal(currentDescription, signal.topic)))
     .map((signal) => {
       const suggestedUse = suggestedUseForSignal(signal, currentDescription);
       return {
@@ -3697,7 +3844,6 @@ function publicListingOpportunities(signals: Signal[], currentDescription: strin
       };
     })
     .filter((item) =>
-      item.already_covered_in_description !== true &&
       (item.suggested_use === "positive_public_copy" || item.suggested_use === "expectation_setting") &&
       Number(item.primary_review_evidence_count) >= 2
     )
@@ -3782,14 +3928,18 @@ function nearbyDetailsMissing(decision: EvidenceReasoningDecision, payload: Reco
     return false;
   }
 
-  return !/\bGoogle reviews\b|\b\d(?:\.\d)?\/5\b|about \d+(?:\.\d+)? km away/i.test(copy);
+  const places = Array.isArray(payload.nearby_google_places_context)
+    ? payload.nearby_google_places_context.filter((place): place is { name: string } =>
+      typeof place === "object" && place !== null && "name" in place && typeof place.name === "string")
+    : [];
+  return !hasNearbyPlaceName(copy, places);
 }
 
 function shouldIncludeNearbyDetails(payload: Record<string, unknown>): boolean {
   return (
     arrayOfStrings(payload.nearby_highlight_candidates).length > 0 &&
     payload.current_listing_has_specific_nearby_places !== true &&
-    Number(payload.nearby_guest_review_support_count ?? 0) >= 2
+    Array.isArray(payload.nearby_google_places_context) && payload.nearby_google_places_context.length > 0
   );
 }
 
@@ -4034,7 +4184,7 @@ function proposalFromEvidenceReasoning(
   const listingId = state.listing!.id;
   const currentDescription = state.page?.currentDescription ?? state.listing!.description;
   const evidenceTopics = reasoning.evidence_topics.length ? reasoning.evidence_topics : fallbackProposal.evidence_topics ?? [];
-  const replacement = cleanLlmListingCopy(reasoning.proposed_description_replacement);
+  const replacement = cleanLlmListingCopy(reasoning.proposed_description_replacement, 1800);
   const addition = cleanLlmListingCopy(reasoning.proposed_description_addition);
 
   if (replacement && normalizeTextForCoverage(replacement) !== normalizeTextForCoverage(currentDescription)) {
@@ -4067,7 +4217,7 @@ function proposalFromEvidenceReasoning(
   );
 }
 
-function cleanLlmListingCopy(value: string | null | undefined): string | null {
+function cleanLlmListingCopy(value: string | null | undefined, maxLength = 900): string | null {
   const cleaned = value
     ?.replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
@@ -4080,7 +4230,7 @@ function cleanLlmListingCopy(value: string | null | undefined): string | null {
     return null;
   }
 
-  return cleaned.length > 900 ? `${cleaned.slice(0, 900).trim()}.` : cleaned;
+  return cleaned.length > maxLength ? null : cleaned;
 }
 
 function prepareFollowUpEvidenceSearch(state: AgentState, rationale: string): void {
@@ -4917,6 +5067,10 @@ function suggestedUseForSignal(
   currentDescription: string
 ): "positive_public_copy" | "expectation_setting" | "manager_only" | "stop" {
   if (signal.type === "accuracy_gap") {
+    if (!["Temperature expectations", "Noise expectations", "Historic Lisbon hills",
+      "Access and stairs expectations", "Space expectations"].includes(signal.topic)) {
+      return "manager_only";
+    }
     if (
       signal.topic === "Temperature expectations" ||
       signal.topic === "Remote-work readiness" ||

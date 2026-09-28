@@ -1,135 +1,99 @@
 ![FixGap AI banner](public/fixgap-readme-banner.svg)
 
 <p align="center">
-  <img alt="Demo Video" src="https://img.shields.io/badge/DEMO%20VIDEO-FF385C?style=for-the-badge">
-  <img alt="Vercel" src="https://img.shields.io/badge/VERCEL-111827?style=for-the-badge&amp;logo=vercel&amp;logoColor=white">
-  <img alt="ReAct Agent" src="https://img.shields.io/badge/REACT%20AGENT-FF385C?style=for-the-badge">
-  <img alt="LLMod.ai" src="https://img.shields.io/badge/LLMOD.AI-7C3AED?style=for-the-badge">
-  <img alt="GPT 5.4 Mini" src="https://img.shields.io/badge/GPT--5.4--MINI-2563EB?style=for-the-badge">
-  <img alt="Supabase" src="https://img.shields.io/badge/SUPABASE-16A34A?style=for-the-badge&amp;logo=supabase&amp;logoColor=white">
-  <img alt="Pinecone" src="https://img.shields.io/badge/PINECONE-0F766E?style=for-the-badge">
   <img alt="Next.js" src="https://img.shields.io/badge/NEXT.JS-111827?style=for-the-badge&amp;logo=nextdotjs&amp;logoColor=white">
   <img alt="TypeScript" src="https://img.shields.io/badge/TYPESCRIPT-3178C6?style=for-the-badge&amp;logo=typescript&amp;logoColor=white">
+  <img alt="Gemini" src="https://img.shields.io/badge/GEMINI-4285F4?style=for-the-badge&amp;logo=googlegemini&amp;logoColor=white">
+  <img alt="Pinecone" src="https://img.shields.io/badge/PINECONE-0F766E?style=for-the-badge">
+  <img alt="Supabase" src="https://img.shields.io/badge/SUPABASE-16A34A?style=for-the-badge&amp;logo=supabase&amp;logoColor=white">
+  <img alt="Vercel" src="https://img.shields.io/badge/VERCEL-111827?style=for-the-badge&amp;logo=vercel&amp;logoColor=white">
 </p>
 
 # FixGap AI
 
-**Autonomous Lisbon Airbnb Listing Editor**
+**Evidence-backed Airbnb property assessments for guests and listing improvements for owners.**
 
-FixGap AI is an autonomous AI agent that helps Lisbon short-term-rental managers keep simulated Airbnb listing pages aligned with what guests actually experience. It reads the current listing page, searches Airbnb guest-review evidence, uses nearby Google Places context when useful, and decides whether a page improvement is justified.
+FixGap AI examines a prepared Lisbon Airbnb dataset and guest reviews. It reuses an existing Pinecone review index for semantic retrieval, compares review evidence with the listing, and adds relevant nearby-place context from cached Google Maps-style records in Supabase. Gemini reasons over selected evidence; deterministic checks enforce source provenance, schema, and edit safety. The app never edits a real Airbnb account.
 
-Instead of following a fixed workflow, the agent chooses actions dynamically. It may search more reviews, inspect nearby places, draft a safer listing edit, recommend property fixes, polish existing copy, restore a previous version, or stop without editing when evidence is not strong enough.
+&#127916; [Watch the project walkthrough](https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing). The recording may show an earlier interface; the current app has separate Guest and Owner agents.
 
-&#127916; Watch the [demo video](https://drive.google.com/file/d/19gj8hQShXqdnhYH7rVQFDOyaZtzfOImp/view?usp=sharing) for a quick walkthrough of how to use the agent, run end-to-end improvements, and inspect its execution trace.
+## Two Agents
 
-Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs are written to Supabase. For a clean product demo, a new browser session resets the selected listing page to the source dataset before the first agent run, and the explicit `Reset Page` control can restore listing state at any time.
+### Guest Agent
 
-## &#128161; What It Does
+For someone considering a property, the Guest Agent produces a concise Hebrew assessment: supported strengths and drawbacks, listing-versus-review gaps, guest fit, questions to check before booking, and a neighborhood summary. Findings link to exact guest-review quotations. Nearby venue reviews are kept separate from reviews of the property.
 
-- &#128269; **Improves listing copy end to end** by comparing the simulated page against guest-review evidence and nearby context, then updating only the fields that are safe and useful to improve.
-- &#129517; **Finds review-backed expectation gaps** such as stairs, compact rooms, noise, temperature comfort, cleanliness, views, location strengths, walkability, and nearby value.
-- &#128205; **Turns nearby context into guest-facing value** when Google Places provides strong supporting facts such as place name, rating, Google review count, category, and approximate distance.
-- &#128736; **Recommends property and operations fixes** from repeated guest complaints, helping the manager decide what to improve first without changing the public listing text.
-- &#128221; **Polishes existing listing language** when the user asks for copy improvement only, preserving current facts while making the page sound clearer and more natural.
-- &#8617; **Restores previous versions** when the manager dislikes a simulated edit, keeping the demo workflow easy to inspect and reverse.
-- &#128721; **Stops autonomously** when the next edit is weak, redundant, unsafe, or not supported by enough evidence.
+Each click analyzes the next source window of up to 200 usable reviews. Pinecone searches by existing review vector ID cover strengths, drawbacks, mixed experiences, and broad discovery within that window. Only selected passages enter the model context; the result is not an exhaustive or representative analysis of all guests. An update adds supporting, contradicting, or contextual evidence without replacing the original findings. A deterministic provenance check and semantic supervisor must approve every assessment.
 
-## &#9881; How It Works
+In production, a signed, short-lived continuation token carries the verified report between requests so updates do not depend on a particular Vercel function instance. Refreshing the page starts a new browser session.
 
-The main agent follows a ReAct-style loop:
+### Owner Agent
+
+The Owner Agent compares the current simulated listing page with guest experience and optional nearby context. Its ReAct-style loop can inspect reviews, draft a complete Hebrew About replacement, request supervision, execute an approved edit, or stop when no useful new gap is justified. A separate **Find property fixes** request returns prioritized operational recommendations without editing the page.
+
+End-to-end review runs advance through one new source window of up to 240 reviews per request. Semantic retrieval reuses the existing Pinecone vectors; compact evidence and a sample of source reviews allow the model to propose additional dynamic signals. Code checks review IDs and claims before a proposed edit reaches the supervisor. A new window does not automatically mean a new edit.
+
+Only the simulated page is changed. Production page state and audit logs use Supabase; local development blocks Supabase writes. The public Owner trace lists actual LLM calls, not deterministic tool observations mislabeled as model steps.
+
+## Architecture
 
 ```text
-Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop
+Prepared Airbnb listing + review source       Cached nearby places in Supabase
+                 |                                         |
+                 +----> Pinecone review retrieval <--------+
+                                   |
+                       Compact, attributable evidence
+                                   |
+                         Guest or Owner reasoning
+                                   |
+                    Schema and provenance validation
+                                   |
+                         Semantic supervision
+                                   |
+             Guest report / approved simulated page edit
 ```
 
-`Autonomous Listing Editor Agent` receives a property-manager request, chooses relevant tools dynamically, observes evidence, updates its state, and decides whether to draft an edit, ask for more evidence, stop without action, or submit a proposal.
+The original Owner architecture overview is retained below. The Guest Agent follows the separate supervised assessment pipeline described above, not the Owner's ReAct edit loop.
 
-`Supervisor / Control Agent` reviews proposed page updates before execution. It can approve, revise, or block an action, so the agent can complete end-to-end tasks while keeping edits narrow, evidence-backed, and inside the simulated page boundary.
+![Owner Agent architecture overview](public/model-architecture.png)
 
-### &#128200; Progressive Review Coverage
+## Data Boundaries
 
-Some Lisbon listings include hundreds or thousands of guest-review texts. FixGap AI does not blindly push every review into one prompt. It retrieves focused evidence windows, updates its state, and decides whether the current evidence is enough for a useful edit.
+- **Airbnb source data:** prepared Lisbon listings and reviews included with the project. Listing availability and property conditions are not verified live.
+- **Review RAG:** the existing Pinecone `airbnb-reviews` index, namespace `airbnb-reviews-rich-50`. Searches reuse stored vectors; runtime does not create embeddings or upsert reviews.
+- **Nearby context:** cached Google Maps-style place records in Supabase, including category, rating, Google review count, and straight-line distance. The app does not call the live Google Places API.
+- **LLM:** Gemini for evidence reasoning and semantic supervision. JSON/schema, source quotations, review IDs, and unsupported claims are checked in code.
+- **Writes:** Guest assessments do not edit listings. Owner edits affect only the simulated page after supervisor approval; no live Airbnb account, booking, price, private message, or guest review is modified.
 
-If the same end-to-end request is run again in the same demo session, the agent continues from the next review-coverage window instead of reusing only the same sample. This allows it to discover additional gaps over repeated runs, while still stopping when the current page already covers the strongest supported topics or when no safe new edit remains.
+## Local Setup
 
-This design also keeps the agent efficient: FixGap AI avoids sending the full review corpus into a single LLM prompt, retrieves focused evidence windows through RAG, keeps prompts compact, and uses LLM calls only for reasoning, action selection, drafting, and supervision steps that require model judgment.
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-## &#127970; Architecture
+Set `GEMINI_API_KEY`, `PINECONE_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. Use `LLM_PROVIDER=gemini`, `LLM_MODE=live`, `PINECONE_REVIEW_INDEX=airbnb-reviews`, and `PINECONE_REVIEW_NAMESPACE=airbnb-reviews-rich-50`. Set `FIXGAP_LOCAL_ONLY=true` to prevent local Supabase page and audit writes. Do not commit `.env.local` or share service-role credentials.
 
-![FixGap AI model architecture](public/model-architecture.png)
+Run focused checks with `node scripts/qa-local.mjs` and a production build with `npm run build`. The QA script mocks external services; it does not spend model tokens.
 
-## &#128202; Data & Evidence
+## Deployment
 
-- **Compact selected Lisbon subset**: the production demo uses 50 Lisbon listings with richer Airbnb review coverage and nearby-place context, derived from the larger Lisbon Airbnb source dataset.
-- **Airbnb guest reviews** are the primary evidence source and are retrieved through Pinecone RAG.
-- **Google Places** provides supporting environmental context such as nearby place names, ratings, review counts, categories, and approximate distance.
-- **Listing page state and audit logs** persist in Supabase during production runtime.
-- **Supervisor-approved edits** are recorded with an audit trail so each visible page change can be traced back to an autonomous decision.
+The GitHub `main` branch is connected to Vercel. Configure the same Gemini, Pinecone, and Supabase credentials as **server-side Production environment variables**, along with `LLM_PROVIDER=gemini`, `LLM_MODE=live`, `LLM_LIVE_MODULES=agent,supervisor`, `REQUIRE_PINECONE_RAG=true`, and `REQUIRE_SUPABASE_RUNTIME=true`. Do not set `FIXGAP_LOCAL_ONLY=true` in production. The Supabase schema is in [`supabase/schema.sql`](supabase/schema.sql).
 
-## &#128640; Production Stack
+The production Guest continuation is signed server-side using `GUEST_SESSION_SECRET`, or the already configured Supabase service-role key when a dedicated signing secret is absent. Neither key is sent to the browser. The signed token contains review evidence already returned by the assessment API; it expires after two hours and is scoped to the selected property and browser session.
 
-Production runs with live LLMod.ai decision calls for the Agent and Supervisor modules.
-
-| Layer | Technology |
-| --- | --- |
-| Application | Next.js / TypeScript |
-| Text model | `MB5R2CF-azure/gpt-5.4-mini` |
-| LLM provider | LLMod.ai |
-| Embeddings | `MB5R2CF-azure/text-embedding-3-small` |
-| Primary database | Supabase |
-| Vector database | Pinecone |
-| Deployment | Vercel |
-
-## &#128279; Required Project API
+## API
 
 ```text
 GET  /api/team_info
 GET  /api/agent_info
 GET  /api/model_architecture
-POST /api/execute
+POST /api/execute             Owner Agent
+GET  /api/guest_assessment    Current local session result
+POST /api/guest_assessment    Guest assessment or next window
 ```
 
-`POST /api/execute` accepts:
+`POST /api/execute` accepts a `prompt`, optional `session_id`, and optional `review_coverage_state`. It returns `status`, `error`, `response`, real LLM `steps`, and the updated coverage state when available. `POST /api/guest_assessment` accepts `listing_id` and `session_id`; production update requests also send back the signed `continuation` returned by the previous successful response.
 
-```json
-{
-  "prompt": "User request here"
-}
-```
-
-Success response:
-
-```json
-{
-  "status": "ok",
-  "error": null,
-  "response": "...",
-  "steps": []
-}
-```
-
-Error response:
-
-```json
-{
-  "status": "error",
-  "error": "Human-readable error description",
-  "response": null,
-  "steps": []
-}
-```
-
-`steps` contains the real LLM calls executed by the agent in order, as required by the course API specification. Each step includes the module name, the effective prompt sent to the model, and the parsed model response.
-
-## &#128737; Safety & Scope
-
-FixGap AI is intentionally scoped to a simulated listing-management environment. It does not access a live Airbnb account, scrape websites, change prices or bookings, respond to private messages, or edit guest reviews. Updates occur only in the simulated demo listing page, and unsupported amenities or invented claims are blocked before execution.
-
-## &#128187; Local Development
-
-```bash
-npm install
-npm run dev
-```
-
-Local development supports an optional mock LLM mode for testing without external model calls.
+This is a portfolio research demo, not a booking recommendation or a live property inspection. Review evidence is a selected sample and may be historical.
