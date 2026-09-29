@@ -435,6 +435,7 @@ const dashboard = load("components/DemoDashboard.tsx", {
     return [dashboardState[index], () => {}];
   } },
   "@/components/GuestAssessmentPanel": { GuestAssessmentPanel: () => null },
+  "@/components/GuestDataLab": { GuestDataLab: () => null },
   "@/components/AgentTrace": traceComponent
 });
 const dashboardProps = { initialListings: [], listingOptions: [], totalDatasetListings: 0, managedCount: 0, localGuestMode: true };

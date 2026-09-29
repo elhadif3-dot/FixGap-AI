@@ -11,7 +11,9 @@
     "seed-supabase": "node scripts/seed-supabase.mjs",
     "ingest-pinecone": "node scripts/ingest-pinecone.mjs",
     "pinecone-stats": "node scripts/pinecone-stats.mjs",
-    "qa:agent": "node scripts/qa-agent.mjs"
+    "qa:agent": "node scripts/qa-agent.mjs",
+    "qa:data-lab": "node scripts/qa-data-lab.mjs",
+    "qa:retrieval": "node scripts/qa-pinecone-retrieval.mjs"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^8.1.0",

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { GuestAssessmentPanel } from "@/components/GuestAssessmentPanel";
+import { GuestDataLab } from "@/components/GuestDataLab";
 import { AgentTrace, type TraceSummary } from "@/components/AgentTrace";
 import {
   Bath,
@@ -461,6 +462,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
             <ReservationCard listing={selectedListing} />
           </aside> : null}
         </div>
+        {mode === "guest" ? <GuestDataLab key={`data-${selectedListing.id}`} listingId={selectedListing.id} /> : null}
       </main>
     </div>
   );
