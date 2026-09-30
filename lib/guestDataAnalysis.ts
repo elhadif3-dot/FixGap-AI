@@ -73,7 +73,7 @@ export type GuestDataAnalysis = {
   };
 };
 
-type TopicDefinition = {
+export type TopicDefinition = {
   id: string;
   label: string;
   positive: RegExp;
@@ -81,7 +81,7 @@ type TopicDefinition = {
   listingClaim: RegExp;
 };
 
-const TOPICS: TopicDefinition[] = [
+export const REVIEW_SIGNAL_TOPICS: TopicDefinition[] = [
   { id: "location", label: "Location & walkability",
     positive: /great location|perfect location|excellent location|central location|well located|prime location|heart of|walking distance|walkable|close to|bem localiz|boa localiza|excelente localiza|buena ubicaci|excelente ubicaci|bien situ|idealement situ|ottima posizion|zentral gelegen/,
     negative: /far from|poor location|bad location|inconvenient location|too touristy|difficult to reach|hard to reach/,
@@ -128,7 +128,7 @@ const TOPICS: TopicDefinition[] = [
     listingClaim: /safe|secure|security|camera/ }
 ];
 
-type PreparedReview = Review & { normalized: string; timestamp: number; month: string; signals: Map<string, Set<"positive" | "negative">> };
+export type PreparedReview = Review & { normalized: string; timestamp: number; month: string; signals: Map<string, Set<"positive" | "negative">> };
 
 export function analyzeGuestData(listing: Listing, rawReviews: Review[], places: Place[]): GuestDataAnalysis {
   const reviews = prepareReviews(rawReviews);
@@ -137,7 +137,7 @@ export function analyzeGuestData(listing: Listing, rawReviews: Review[], places:
   const recent = new Set(dated.slice(0, recentSize).map((review) => review.id));
   const historical = new Set(dated.slice(recentSize).map((review) => review.id));
   const denominator = reviews.length || 1;
-  const topics = TOPICS.map((topic) => topicMetric(topic, reviews, denominator))
+  const topics = REVIEW_SIGNAL_TOPICS.map((topic) => topicMetric(topic, reviews, denominator))
     .filter((topic) => topic.mentionedReviews > 0)
     .sort((a, b) => b.mentionedReviews - a.mentionedReviews || a.label.localeCompare(b.label));
   const activeMonths = new Set(reviews.filter((review) => review.month).map((review) => review.month)).size;
@@ -186,7 +186,7 @@ export function analyzeGuestData(listing: Listing, rawReviews: Review[], places:
   return result;
 }
 
-function prepareReviews(raw: Review[]): PreparedReview[] {
+export function prepareReviews(raw: Review[]): PreparedReview[] {
   const ids = new Set<string>();
   const texts = new Set<string>();
   return raw.flatMap((review) => {
@@ -196,7 +196,7 @@ function prepareReviews(raw: Review[]): PreparedReview[] {
     ids.add(review.id); texts.add(normalized);
     const timestamp = /^\d{4}-\d{2}-\d{2}$/.test(review.date) ? Date.parse(`${review.date}T00:00:00Z`) : Number.NaN;
     const signals = new Map<string, Set<"positive" | "negative">>();
-    for (const topic of TOPICS) {
+    for (const topic of REVIEW_SIGNAL_TOPICS) {
       const polarities = new Set<"positive" | "negative">();
       if (topic.positive.test(normalized)) polarities.add("positive");
       if (topic.negative.test(normalized)) polarities.add("negative");
@@ -233,7 +233,7 @@ function buildTrends(topics: TopicMetric[], reviews: PreparedReview[], recent: S
 }
 
 function expectationMetric(topic: TopicMetric, description: string, analyzed: number): ExpectationMetric {
-  const definition = TOPICS.find((item) => item.id === topic.id)!;
+  const definition = REVIEW_SIGNAL_TOPICS.find((item) => item.id === topic.id)!;
   const explicit = definition.listingClaim.test(description);
   const minimum = Math.max(3, Math.ceil(analyzed * 0.005));
   const positive = topic.positiveReviews;

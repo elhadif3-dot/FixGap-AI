@@ -22,6 +22,20 @@ for (const row of rows) {
 }
 for (const reviews of byListing.values()) reviews.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
 
+let localWindows = 0;
+for (const [listingId, reviews] of byListing) {
+  assert.equal(new Set(reviews.map((review) => review.id)).size, reviews.length, `Duplicate source IDs for ${listingId}.`);
+  const windows = Array.from({ length: Math.ceil(reviews.length / 200) }, (_, index) => reviews.slice(index * 200, (index + 1) * 200));
+  localWindows += windows.length;
+  assert.ok(windows.every((window) => window.length > 0 && window.length <= 200), `Invalid window size for ${listingId}.`);
+  const flattened = windows.flat();
+  assert.deepEqual(flattened.map((review) => review.id), reviews.map((review) => review.id), `Window loss or reordering for ${listingId}.`);
+  assert.equal(new Set(flattened.map((review) => review.id)).size, reviews.length, `Overlapping windows for ${listingId}.`);
+  for (let index = 1; index < flattened.length; index += 1) {
+    assert.ok(flattened[index - 1].date.localeCompare(flattened[index].date) >= 0, `Date order broke for ${listingId}.`);
+  }
+}
+
 const topicPatterns = {
   location: /great location|perfect location|central location|walking distance|walkable|close to|well located/i,
   cleanliness: /clean|spotless|dirty|filthy|mould|mold/i,
@@ -46,7 +60,7 @@ const selectAnchors = (window) => {
 
 const pc = new Pinecone({ apiKey: requireEnv("PINECONE_API_KEY") });
 const target = pc.index(pineconeReviewIndexName()).namespace(pineconeReviewNamespace());
-const listingIds = ["45855270", "4132059"];
+const listingIds = [...byListing].sort((a, b) => b[1].length - a[1].length).slice(0, 3).map(([listingId]) => listingId);
 const report = [];
 let totalQueries = 0;
 let totalMatches = 0;
@@ -97,6 +111,8 @@ for (const listingId of listingIds) {
 const topicAgreementPct = topicCompared ? Math.round(topicMatches / topicCompared * 1000) / 10 : 0;
 assert.ok(topicAgreementPct >= 25, `Topic agreement ${topicAgreementPct}% is below the 25% smoke-test floor.`);
 console.log(JSON.stringify({ status: "PASS", mode: "read_only", index: pineconeReviewIndexName(),
-  namespace: pineconeReviewNamespace(), listings: listingIds.length, windows: report,
+  namespace: pineconeReviewNamespace(), source_listings_checked: byListing.size, source_windows_checked: localWindows,
+  pinecone_listings: listingIds.length, windows: report,
   queries: totalQueries, matches: totalMatches, topic_agreement_pct: topicAgreementPct,
-  assertions: ["source parity", "window isolation", "listing isolation", "self-match", "unique IDs", "score order"] }, null, 2));
+  assertions: ["all-source window partition", "newest-first order", "source parity", "window isolation",
+    "listing isolation", "self-match", "unique IDs", "score order"] }, null, 2));

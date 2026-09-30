@@ -52,14 +52,19 @@ console.log("PASS: soft diversity without forced quotas and duplicate places.");
 
 const budget = load("lib/guestEvidenceBudget.ts");
 const language = load("lib/narrativeLanguage.ts");
+const guestDataAnalysis = load("lib/guestDataAnalysis.ts");
+const guestSignalCounts = load("lib/guestSignalCounts.ts", {
+  "@/lib/guestDataAnalysis": guestDataAnalysis
+});
 const guest = load("lib/guestAssessment.ts", {
   "@/lib/data": {}, "@/lib/guestEvidence": {}, "@/lib/llmClient": {}, "@/lib/guestEvidenceBudget": budget,
-  "@/lib/narrativeLanguage": language
+  "@/lib/narrativeLanguage": language, "@/lib/guestSignalCounts": guestSignalCounts
 });
 const evidence = [{ id: "r1", review_id: "101", listing_id: "1", date: "2026-01-01",
   text: "The room was renovated and very comfortable.", is_excerpt: false }];
 const draft = { summary: "A concise property assessment supported by available guest evidence.", findings: [{
   id: "f1", title: "Renovated room", kind: "strength", observation: "A guest reports a renovated, comfortable room.",
+  signal_topics: ["property_quality"],
   interpretation: "May suit guests who value comfortable interiors.",
   evidence: [{ id: "r1", quote: "The room was renovated", polarity: "positive" }],
   listing_claim: null, alignment: "no_claim"
@@ -68,6 +73,22 @@ const draft = { summary: "A concise property assessment supported by available g
 const input = { description: "A centrally located room.", evidence, placeIds: [] };
 assert.equal(guest.validateGuestAssessment(draft, input).findings.length, 1);
 assert.equal(guest.countFindingSupport(draft, evidence).f1, 1);
+const countWindow = [
+  { listingId: "1", id: "101", date: "2026-01-01", comments: "The newly renovated room was very comfortable." },
+  { listingId: "1", id: "102", date: "2025-12-01", comments: "Our modern room felt fresh after the recent renovation." },
+  { listingId: "1", id: "103", date: "2025-11-01", comments: "The room was outdated and needs renovation soon." },
+  { listingId: "1", id: "104", date: "2025-10-01", comments: "We enjoyed the central location and helpful staff." }
+];
+const measured = guestSignalCounts.countWindowFindingSignals(draft, evidence, countWindow);
+assert.deepEqual({ topic: measured.f1[0].topic_id, supporting: measured.f1[0].supporting,
+  contradicting: measured.f1[0].contradicting, analyzed: measured.f1[0].analyzed },
+{ topic: "property_quality", supporting: 2, contradicting: 1, analyzed: 4 });
+const ambiguousDraft = structuredClone(draft);
+ambiguousDraft.findings[0].signal_topics = ["safety"];
+ambiguousDraft.findings[0].evidence[0].quote = "A detail without a known topic";
+assert.deepEqual(guestSignalCounts.countWindowFindingSignals(ambiguousDraft,
+  [{ ...evidence[0], text: ambiguousDraft.findings[0].evidence[0].quote }],
+  [{ listingId: "1", id: "101", date: "2026-01-01", comments: "A detail without a known topic was described clearly." }]), {});
 const fabricated = structuredClone(draft); fabricated.findings[0].evidence[0].quote = "The room has a private swimming pool.";
 assert.throws(() => guest.validateGuestAssessment(fabricated, input), /non-verbatim/);
 const falseClaim = structuredClone(draft); falseClaim.findings[0].listing_claim = "Private swimming pool";
@@ -251,10 +272,11 @@ const pipeline = load("lib/guestAssessment.ts", {
   "@/lib/guestEvidence": { retrieveGuestEvidence: async (id, _raw, options) => {
     assert.equal(id, "1");
     fixtureWindowOptions = options;
-    return { evidence: fixtureEvidence, audit: { source_window_index: options.windowIndex,
+    return { evidence: fixtureEvidence, sourceWindow: fixtureEvidence.map((item) => ({ listingId: item.listing_id,
+      id: item.review_id, date: item.date, comments: item.text })), audit: { source_window_index: options.windowIndex,
       coverage_note: "Selected sample, not representative." } };
   } },
-  "@/lib/llmClient": llm
+  "@/lib/llmClient": llm, "@/lib/guestSignalCounts": guestSignalCounts
 });
 let modelCalls = [];
 function modelResponses(outputs) {
@@ -407,6 +429,7 @@ assert.match(failedPanelHtml, /Update assessment/);
 assert.ok(failedPanelHtml.includes(report.assessment.summary));
 assert.match(failedPanelHtml, /LLM Steps &amp; Debug/);
 assert.match(failedPanelHtml, /Raw API step payload/);
+assert.match(failedPanelHtml, /1 מתוך 1 ביקורות שנבדקו תואמות/);
 assert.match(failedPanelHtml, /<details class="guestMethod" open=""/);
 const thirdWindowPanel = { ...updatedReport,
   retrieval_audit: { ...updatedReport.retrieval_audit, source_window_index: 2 },
@@ -488,6 +511,17 @@ const passages = budget.sourcePassages(longText, 140);
 assert.ok(passages.every((passage) => longText.includes(passage)));
 assert.ok(passages.some((passage) => passage.includes("difficult to sleep")));
 assert.ok(budget.estimateTokens(passages.join(" ")) <= 145);
+const { parseCsv, rowsToObjects } = await import("./csv.mjs");
+const sourceRows = rowsToObjects(parseCsv(readFileSync("data/lisbon_reviews_final_with_pois.csv", "utf8")));
+const passageCorpus = sourceRows.map((row) => String(row.comments ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim())
+  .filter((text) => text.length >= 35).filter((_, index) => index % Math.max(1, Math.floor(sourceRows.length / 750)) === 0).slice(0, 750);
+assert.ok(passageCorpus.length >= 500, "Expected a broad real-review passage QA sample.");
+for (const text of passageCorpus) {
+  const selected = budget.sourcePassages(text, 140);
+  assert.ok(selected.every((passage) => text.includes(passage)), "A selected passage must be verbatim source text.");
+  assert.ok(budget.estimateTokens(selected.join(" ")) <= 145, "A selected passage set exceeded its bounded budget.");
+}
+console.log(`PASS: ${passageCorpus.length} real review texts produced verbatim, token-bounded passages without LLM calls.`);
 const stitched = structuredClone(draft);
 const stitchedSource = { ...evidence[0], passages: ["The room was renovated", "and very comfortable."],
   text: "The room was renovated\n[...]\nand very comfortable." };

@@ -14,6 +14,11 @@ const alignmentNames: Record<string, string> = {
   supports: "תומך בתיאור", contradicts: "פער מול התיאור", mixed: "עדויות מעורבות",
   no_claim: "מידע נוסף מהאורחים", not_verified: "לא ניתן לאמת"
 };
+const signalTopicNames: Record<string, string> = {
+  location: "מיקום ונגישות ברגל", cleanliness: "ניקיון", noise: "רעש ושקט", service: "צוות ושירות",
+  checkin: "הגעה וצ'ק-אין", comfort: "נוחות ומיטה", wifi: "Wi-Fi", accuracy: "דיוק המודעה",
+  value: "תמורה למחיר", property_quality: "איכות החדר", safety: "בטיחות"
+};
 
 export function GuestAssessmentPanel({ listingId, sessionId }: { listingId: string; sessionId: string }) {
   const [result, setResult] = useState<GuestAssessmentResult | null>(null);
@@ -94,7 +99,10 @@ export function GuestAssessmentPanel({ listingId, sessionId }: { listingId: stri
                 </details>
               </div>)}
             <div className="guestFindingMeta"><span>{alignmentNames[finding.alignment]}</span>
-              <span>{result.support_counts[finding.id]} ביקורות תומכות במדגם{result.support_counts[finding.id] === 1 ? " · עדות בודדת" : ""}</span></div>
+              {result.signal_counts?.[finding.id]?.length ? result.signal_counts[finding.id].map((count) => <span key={count.topic_id}>
+                {signalTopicNames[count.topic_id] ?? count.topic_label}: {count.supporting} מתוך {count.analyzed} ביקורות שנבדקו תואמות
+              </span>) : <span>{result.support_counts[finding.id]} ביקורות מצוטטות כתמיכה</span>}
+              <span>{result.support_counts[finding.id]} ציטוטים מייצגים ומאומתים</span></div>
             <details><summary>Evidence &amp; listing comparison<ChevronDown size={14} /></summary>
               {finding.listing_claim ? <div className="guestListingClaim"><strong>המודעה מציגה</strong><blockquote dir="auto">{finding.listing_claim}</blockquote></div> : null}
               {finding.evidence.map((ref) => {
@@ -121,6 +129,7 @@ export function GuestAssessmentPanel({ listingId, sessionId }: { listingId: stri
         <details className="guestMethod"><summary>Sources &amp; methodology<ChevronDown size={15} /></summary>
           <p>ההערכה מבוססת על דאטה שמור ומדגם נבחר, לא בדיקה בזמן אמת או מדגם מייצג של כלל האורחים.</p>
           <p>כל עדכון מתקדם לחלון הבא של עד 200 ביקורות שמישות, מהחדשות לישנות. הממצאים הקודמים נשמרים ותוספות או סתירות מסומנות בנפרד. רק קטעים נבחרים מועברים למודל; לא כל ביקורת בחלון עברה ניתוח סמנטי מלא.</p>
+          <p>מספר הביקורות התואמות נספר בקוד על כל ביקורות המקור בחלונות שנבדקו, לפי נושא וקוטביות. הציטוטים המוצגים הם דוגמאות מאומתות בלבד; כשלא ניתן למפות ממצא לנושא באופן חד-משמעי, מוצג רק מספר הציטוטים ולא אומדן כולל.</p>
           <p>{Number(result.retrieval_audit.analyst_passage_count ?? result.evidence.length)} קטעי מקור · כ־{Number(result.retrieval_audit.estimated_evidence_tokens ?? 0).toLocaleString("he-IL")} טוקנים מוערכים בחבילת הביקורות. השימוש בפועל מופיע בקריאות המודל להלן.</p>
           <p>האחזור משתמש בווקטורים קיימים של ביקורות לדוגמה. הוא אינו חיפוש באמצעות embedding חדש של שאילתת טקסט.</p>
           {assessment.omitted_findings.map((item) => <p key={item.topic}><strong>לא נכלל: {item.topic}.</strong> {item.reason}</p>)}

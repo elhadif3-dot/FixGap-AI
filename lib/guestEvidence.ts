@@ -134,7 +134,7 @@ export async function retrieveGuestEvidence(listingId: string, rawReviews: Revie
   }
   if (!evidence.length) throw new Error("The review evidence budget could not fit any usable sources.");
   const tokens = estimateTokens(evidence.map(({ text: _text, ...record }) => record));
-  return { evidence, audit: {
+  return { evidence, sourceWindow: window, audit: {
     source: "pinecone_by_example", raw_count: rawReviews.length, clean_count: clean.length,
     source_window_size: 200, source_window_count: window.length, source_window_index: windowIndex,
     source_window_order: "newest_first", source_windows_visited: windowIndex + 1,
