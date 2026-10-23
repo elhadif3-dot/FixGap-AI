@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { BarChart3, ChevronDown, Database, MapPin, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BarChart3, ChevronDown, Database, MapPin, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import type { GuestDataAnalysis } from "@/lib/guestDataAnalysis";
 
 const resultNames: Record<string, string> = {
@@ -20,24 +20,32 @@ export function GuestDataLab({ listingId }: { listingId: string }) {
   const [analysis, setAnalysis] = useState<GuestDataAnalysis | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
 
-  async function run() {
-    if (running) return;
+  async function run(signal?: AbortSignal) {
     setRunning(true); setError("");
     try {
-      const response = await fetch("/api/guest_data_analysis", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listing_id: listingId }), signal: AbortSignal.timeout(60_000)
-      });
+      const response = await fetch(`/api/guest_data_analysis?listing_id=${encodeURIComponent(listingId)}`, { signal });
       const payload = await response.json();
       if (!response.ok || payload.status !== "ok") throw new Error(payload.error || "Data analysis failed.");
       setAnalysis(payload.analysis);
+      setElapsedMs(Number(payload.performance?.elapsedMs ?? 0));
     } catch (problem) {
+      if (problem instanceof DOMException && problem.name === "AbortError") return;
       setError(problem instanceof Error ? problem.message : "Data analysis failed.");
     } finally {
       setRunning(false);
     }
   }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setAnalysis(null); setElapsedMs(null);
+    void run(controller.signal);
+    return () => controller.abort();
+    // `listingId` is the only input; `run` intentionally starts one request per selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingId]);
 
   const visibleTopics = analysis?.topics.slice(0, 9) ?? [];
   const maxMentions = Math.max(1, ...visibleTopics.map((topic) => topic.mentionedReviews));
@@ -48,16 +56,16 @@ export function GuestDataLab({ listingId }: { listingId: string }) {
         <div>
           <span className="dataLabEyebrow"><Database size={15} />Guest Data Lab</span>
           <h2 id="data-lab-title">Review Intelligence</h2>
-          <p>Deterministic analytics over the complete bundled review corpus and cached neighborhood data.</p>
+          <p>Instant, deterministic intelligence over every bundled review and the surrounding-place dataset.</p>
         </div>
         <button className="primaryButton" type="button" onClick={() => void run()} disabled={running}>
-          {running ? <RefreshCw className="dataLabSpin" size={17} /> : <Play size={17} />}
-          {running ? "Analyzing data..." : analysis ? "Refresh analysis" : "Analyze data"}
+          <RefreshCw className={running ? "dataLabSpin" : ""} size={17} />
+          {running ? "Scanning full corpus..." : "Refresh intelligence"}
         </button>
       </div>
       {error ? <p className="dataLabError" role="alert"><TriangleAlert size={18} />{error}</p> : null}
-      {!analysis && !running && !error ? <div className="dataLabEmpty">
-        <BarChart3 size={24} /><p>Run the separate data pipeline to measure recurring topics, changes over time, expectation gaps, and nearby context.</p>
+      {!analysis && running ? <div className="dataLabEmpty" role="status">
+        <BarChart3 size={24} /><p>Scanning the full review corpus, ranking signals, and measuring neighborhood gravity…</p>
       </div> : null}
       {analysis ? <>
         <div className="dataLabCoverage">
@@ -67,6 +75,13 @@ export function GuestDataLab({ listingId }: { listingId: string }) {
           <div><strong>{analysis.coverage.dateTo ?? "N/A"}</strong><span>latest dated review</span></div>
         </div>
         <p className="dataLabScope">Full source corpus: {analysis.coverage.reviewsAnalyzed} cleaned unique reviews from {analysis.coverage.reviewsAvailable} available rows. Counts represent reviews, not keyword occurrences.</p>
+        <div className="signalDeck" aria-label="Strongest ranked signals">
+          {analysis.rankedSignals.slice(0, 6).map((signal, index) => <article className={`signalCard ${signal.kind}`} key={signal.id}>
+            <div><span>#{index + 1} · {signal.kind}</span><b>{signal.score}</b></div>
+            <h3>{signal.title}</h3><p>{signal.summary}</p>
+            <small>{signal.confidence} confidence · {signal.evidenceCount} evidence records</small>
+          </article>)}
+        </div>
 
         <div className="dataLabGrid">
           <section className="dataViz" aria-labelledby="topic-balance-title">
@@ -146,9 +161,26 @@ export function GuestDataLab({ listingId }: { listingId: string }) {
               </div>
             </div>
           </section>
+
+          <section className="dataViz dataVizWide" aria-labelledby="timeline-title">
+            <div className="dataVizHeading"><div><span>06</span><h3 id="timeline-title">How stable are the signals month by month?</h3></div><p>Top topics across the latest 12 active months; cell intensity is the share of reviews in that month</p></div>
+            {analysis.timeline.length ? <div className="signalHeatmap"><div className="signalHeatmapInner">
+              <div className="heatmapHeader"><span>Topic</span>{analysis.timeline.map((period) => <b key={period.period}>{period.period.slice(5)}<small>{period.reviewCount}</small></b>)}</div>
+              {analysis.timeline[0].signals.map((topic) => <div className="heatmapRow" key={topic.topicId}>
+                <strong>{topic.label}</strong>{analysis.timeline.map((period) => {
+                  const signal = period.signals.find((item) => item.topicId === topic.topicId)!;
+                  const magnitude = Math.min(1, (signal.positiveRatePct + signal.negativeRatePct) / 20);
+                  return <span key={period.period} title={`${period.period}: ${signal.positiveRatePct}% positive, ${signal.negativeRatePct}% negative`}
+                    style={{ background: `linear-gradient(135deg, rgba(22,128,91,${magnitude}) ${signal.positiveRatePct >= signal.negativeRatePct ? "70%" : "25%"}, rgba(219,71,96,${magnitude}) 100%)` }}>
+                    {Math.max(signal.positiveRatePct, signal.negativeRatePct)}%
+                  </span>;
+                })}
+              </div>)}
+            </div></div> : <p className="dataVizEmpty">Not enough dated reviews for a monthly signal map.</p>}
+          </section>
         </div>
 
-        <section className="dataInsights"><h3>Data insights</h3>
+        <section className="dataInsights"><h3><Sparkles size={18} />Data insights</h3>
           <ol>{analysis.insights.map((insight) => <li key={insight}>{insight}</li>)}</ol>
         </section>
         <details className="dataMethod"><summary>Metric definitions and limitations<ChevronDown size={15} /></summary>
@@ -157,6 +189,7 @@ export function GuestDataLab({ listingId }: { listingId: string }) {
           <p><strong>Trend:</strong> {analysis.methodology.trendMethod}</p>
           <ul>{analysis.methodology.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
           <p>Calculation version: <code>{analysis.version}</code></p>
+          <p>API analysis time: <strong>{elapsedMs === null ? "N/A" : `${elapsedMs.toLocaleString()} ms`}</strong>. Warm results are held in memory and edge-cacheable.</p>
         </details>
       </> : null}
     </section>

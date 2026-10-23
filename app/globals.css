@@ -86,6 +86,18 @@
 .dataLabCoverage strong { font-size: 22px; font-variant-numeric: tabular-nums; }
 .dataLabCoverage span { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .dataLabScope { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.signalDeck { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.signalCard { min-width: 0; padding: 16px; border: 1px solid var(--line); border-top: 3px solid #147d88; border-radius: 8px; background: #fff; }
+.signalCard.risk { border-top-color: #db4760; }
+.signalCard.strength { border-top-color: #16805b; }
+.signalCard.momentum { border-top-color: #7552a3; }
+.signalCard.expectation { border-top-color: #d18a18; }
+.signalCard.neighborhood { border-top-color: #2474a8; }
+.signalCard > div { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.signalCard > div b { color: var(--ink); font-size: 19px; font-variant-numeric: tabular-nums; }
+.signalCard h3 { margin: 8px 0 5px; font-size: 15px; }
+.signalCard p { min-height: 42px; margin: 0; color: #444; font-size: 12px; line-height: 1.5; }
+.signalCard small { display: block; margin-top: 10px; color: var(--muted); font-size: 10px; }
 .dataLabGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 34px; margin-top: 30px; }
 .dataViz { min-width: 0; padding: 26px 0 30px; border-top: 1px solid var(--line); }
 .dataVizWide { grid-column: 1 / -1; }
@@ -151,8 +163,18 @@
 .nearbyLeaders span strong { font-size: 12px; }
 .nearbyLeaders span small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .nearbyLeaders > div > b { font-size: 10px; white-space: nowrap; }
+.signalHeatmap { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.signalHeatmapInner { min-width: 720px; }
+.heatmapHeader, .heatmapRow { display: grid; grid-template-columns: minmax(135px, 1.5fr) repeat(12, minmax(42px, 1fr)); gap: 5px; align-items: center; }
+.heatmapHeader { margin-bottom: 6px; color: var(--muted); font-size: 9px; text-align: center; text-transform: uppercase; }
+.heatmapHeader > span { text-align: start; }
+.heatmapHeader b, .heatmapHeader small { display: block; font-size: 9px; }
+.heatmapHeader small { margin-top: 2px; font-weight: 500; }
+.heatmapRow { min-height: 36px; margin-top: 5px; }
+.heatmapRow strong { font-size: 11px; }
+.heatmapRow span { display: grid; min-height: 32px; place-items: center; border: 1px solid rgba(0,0,0,.04); color: #202124; font-size: 9px; font-variant-numeric: tabular-nums; }
 .dataInsights { padding: 26px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.dataInsights h3 { margin: 0 0 14px; font-size: 18px; }
+.dataInsights h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 18px; }
 .dataInsights ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 32px; margin: 0; padding-inline-start: 22px; }
 .dataInsights li { padding-inline-start: 5px; color: #333; line-height: 1.6; font-size: 13px; }
 .dataMethod { padding: 17px 0 0; color: var(--muted); }
@@ -165,6 +187,7 @@
   .dataLabCoverage { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dataLabCoverage > div:nth-child(2) { border-inline-end: 0; }
   .dataLabCoverage > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+  .signalDeck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nearbyProfile { grid-template-columns: minmax(0, 1fr); }
   .nearbyLeaders { border-inline-start: 0; border-top: 1px solid var(--line); padding: 14px 0 0; }
 }
@@ -186,6 +209,8 @@
   .nearbyCategories i { grid-row: 2; }
   .nearbyCategories small { grid-row: 2; }
   .dataInsights ol { grid-template-columns: minmax(0, 1fr); }
+  .signalDeck { grid-template-columns: minmax(0, 1fr); }
+  .signalCard p { min-height: 0; }
 }
 
 * {

@@ -220,8 +220,10 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
           ? payload.audit_log
           : null
       );
-      await refreshListingPage(selectedListing.id);
-      await refreshLatestAuditLog(selectedListing.id, submittedPrompt, runStartedAt);
+      await Promise.all([
+        refreshListingPage(selectedListing.id),
+        refreshLatestAuditLog(selectedListing.id, submittedPrompt, runStartedAt)
+      ]);
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
       const errorResult: ExecuteResponse = {
@@ -382,6 +384,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
           <button type="button" role="tab" aria-selected={mode === "guest"} onClick={() => setMode("guest")}>Guest Agent</button>
           <button type="button" role="tab" aria-selected={mode === "owner"} onClick={() => setMode("owner")}>Owner Agent</button>
         </div> : null}
+        {mode === "guest" ? <GuestDataLab key={`data-${selectedListing.id}`} listingId={selectedListing.id} /> : null}
         {mode === "guest" ? <GuestAssessmentPanel key={selectedListing.id} listingId={selectedListing.id} sessionId={demoSessionId} /> : null}
 
         <div className={`contentGrid${mode === "guest" ? " guestListingGrid" : ""}`}>
@@ -462,7 +465,6 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
             <ReservationCard listing={selectedListing} />
           </aside> : null}
         </div>
-        {mode === "guest" ? <GuestDataLab key={`data-${selectedListing.id}`} listingId={selectedListing.id} /> : null}
       </main>
     </div>
   );

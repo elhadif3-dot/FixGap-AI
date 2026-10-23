@@ -5,7 +5,7 @@ import type { Listing, Place, Review } from "@/lib/types";
 
 type LocalAnalyticsData = {
   listings: Listing[];
-  reviews: Review[];
+  reviewsByListing: Map<string, Review[]>;
   places: Place[];
 };
 
@@ -36,7 +36,17 @@ async function loadLocalAnalyticsData(): Promise<LocalAnalyticsData> {
       readFile(path.join(dataDir, "lisbon_listings_final_with_pois.csv"), "utf8"),
       readFile(path.join(dataDir, "lisbon_reviews_final_with_pois.csv"), "utf8"),
       readFile(path.join(dataDir, "lisbon_google_places_filtered.csv"), "utf8")
-    ]).then(([listingCsv, reviewCsv, placeCsv]) => ({
+    ]).then(([listingCsv, reviewCsv, placeCsv]) => {
+      const reviewsByListing = new Map<string, Review[]>();
+      rowsToObjects(parseCsv(reviewCsv)).forEach((row) => {
+        const comments = cleanText(row.comments);
+        if (!row.listing_id || !row.id || !comments) return;
+        const review: Review = { listingId: row.listing_id, id: row.id, date: row.date, comments };
+        const reviews = reviewsByListing.get(row.listing_id);
+        if (reviews) reviews.push(review);
+        else reviewsByListing.set(row.listing_id, [review]);
+      });
+      return {
       listings: rowsToObjects(parseCsv(listingCsv)).map((row) => ({
         id: row.id,
         name: cleanText(row.name),
@@ -58,12 +68,7 @@ async function loadLocalAnalyticsData(): Promise<LocalAnalyticsData> {
         numberOfReviews: numberValue(row.number_of_reviews) ?? 0,
         nearbyPlacesCount: numberValue(row.nearby_places_count) ?? 0
       })),
-      reviews: rowsToObjects(parseCsv(reviewCsv)).flatMap((row) => {
-        const comments = cleanText(row.comments);
-        return row.listing_id && row.id && comments
-          ? [{ listingId: row.listing_id, id: row.id, date: row.date, comments }]
-          : [];
-      }),
+      reviewsByListing,
       places: rowsToObjects(parseCsv(placeCsv)).flatMap((row) => {
         if (!row.place_name || !row.lat || !row.long) return [];
         return [{
@@ -77,7 +82,8 @@ async function loadLocalAnalyticsData(): Promise<LocalAnalyticsData> {
           longitude: numberValue(row.long) ?? 0
         }];
       })
-    }));
+    };
+    });
   }
   return cache;
 }
@@ -88,7 +94,7 @@ export async function getLocalAnalyticsInputs(listingId: string) {
   if (!listing) return null;
   return {
     listing,
-    reviews: data.reviews.filter((review) => review.listingId === listingId),
+    reviews: data.reviewsByListing.get(listingId) ?? [],
     places: data.places.map((place) => ({
       ...place,
       distanceKm: haversineKm(listing.latitude, listing.longitude, place.latitude, place.longitude)

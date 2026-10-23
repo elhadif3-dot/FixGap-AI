@@ -44,8 +44,10 @@ export async function retrieveOwnerExampleEvidence(listingId: string, rawReviews
   const pool = new Map<string, Review>();
   const groups: Review[][] = [];
   const searches: Array<{ goal: string; anchor_review_id: string; returned: number }> = [];
-  for (const anchor of anchors) {
-    const matches = await queryReviewsByExample({ listingId, reviewId: anchor.review.id, topK: 16 });
+  const matchesByAnchor = await Promise.all(anchors.map((anchor) =>
+    queryReviewsByExample({ listingId, reviewId: anchor.review.id, topK: 16 })));
+  for (const [index, anchor] of anchors.entries()) {
+    const matches = matchesByAnchor[index];
     matches.forEach((review) => pool.set(review.id, review));
     groups.push(cleanGuestReviews(matches));
     searches.push({ goal: anchor.goal, anchor_review_id: anchor.review.id, returned: matches.length });
@@ -97,9 +99,12 @@ export async function retrieveGuestEvidence(listingId: string, rawReviews: Revie
   const groups: Review[][] = [];
   const searches: Array<{ goal: string; anchor_review_id: string; returned: number }> = [];
   const retrievedIds = new Set<string>();
-  for (const anchor of anchors) {
-    const matches = await queryReviewsByExample({ listingId, reviewId: anchor.review.id,
-      reviewIds: [...byId.keys()], topK: 40 });
+  const eligibleIds = [...byId.keys()];
+  const matchesByAnchor = await Promise.all(anchors.map((anchor) => queryReviewsByExample({
+    listingId, reviewId: anchor.review.id, reviewIds: eligibleIds, topK: 40
+  })));
+  for (const [index, anchor] of anchors.entries()) {
+    const matches = matchesByAnchor[index];
     const eligible = matches.flatMap((review) => {
       const source = byId.get(review.id);
       if (!source || review.listingId !== listingId) return [];

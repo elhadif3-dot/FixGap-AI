@@ -49,7 +49,13 @@ assert.ok(result.recurringIssues[0].recurrenceScore > 0 && result.recurringIssue
 assert.equal(result.expectations.find((item) => item.topicId === "location").result, "supported");
 assert.equal(result.nearby.placeCount, 2);
 assert.equal(result.nearby.categories.reduce((sum, item) => sum + item.count, 0), 2);
-assert.equal(result.version, "guest-data-lab-v1");
+assert.equal(result.version, "guest-data-lab-v2");
+assert.ok(result.rankedSignals.length > 0, "The analysis should rank strong signals.");
+assert.ok(result.rankedSignals.every((signal) => signal.score >= 0 && signal.score <= 100));
+assert.ok(result.timeline.length > 0 && result.timeline.length <= 12, "The timeline should cover up to 12 active months.");
+assert.ok(result.topics.every((topic) => topic.prevalenceRangePct[0] <= topic.prevalencePct
+  && topic.prevalenceRangePct[1] >= topic.prevalencePct), "Wilson ranges should contain the observed rate.");
+assert.ok(result.nearby.categories.every((category) => category.gravityScore >= 0 && category.gravityScore <= 100));
 console.log("PASS: Guest Data Lab cleaning, topic polarity, recurrence, expectation alignment and nearby aggregation.");
 
 const sourceRows = rowsToObjects(parseCsv(readFileSync("data/lisbon_reviews_final_with_pois.csv", "utf8")));
@@ -75,11 +81,14 @@ for (const listingId of ["45855270", "4132059", "10402101"]) {
     assert.ok(topic.mentionedReviews >= Math.max(topic.positiveReviews, topic.negativeReviews));
     assert.ok(topic.mentionedReviews <= topic.positiveReviews + topic.negativeReviews);
     assert.equal(topic.prevalencePct, Math.round(topic.mentionedReviews / real.coverage.reviewsAnalyzed * 1000) / 10);
+    assert.ok(topic.prevalenceRangePct[0] <= topic.prevalencePct && topic.prevalenceRangePct[1] >= topic.prevalencePct);
   }
   for (const issue of real.recurringIssues) {
     assert.equal(issue.negativeReviews, real.topics.find((topic) => topic.id === issue.topicId)?.negativeReviews);
     assert.ok(issue.recurrenceScore >= 0 && issue.recurrenceScore <= 100);
   }
   assert.equal(real.coverage.recentReviews + real.coverage.historicalReviews, real.coverage.reviewsAnalyzed);
+  assert.ok(real.rankedSignals.length > 0);
+  assert.ok(real.timeline.length <= 12);
 }
 console.log("PASS: real-corpus row counts, independent cleaning totals, denominators and metric invariants for three listings.");

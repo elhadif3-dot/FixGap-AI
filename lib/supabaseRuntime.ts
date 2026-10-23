@@ -46,12 +46,23 @@ export async function fetchListingByIdFromSupabase(id: string): Promise<Listing 
   return rows[0] ? rowToListing(rows[0]) : null;
 }
 
+let googlePlacesCache: Promise<Place[] | null> | null = null;
+
 export async function fetchGooglePlacesFromSupabase(): Promise<Place[] | null> {
   if (!isSupabaseConfigured()) {
     assertSupabaseConfiguredIfRequired();
     return null;
   }
 
+  if (googlePlacesCache) return googlePlacesCache;
+  googlePlacesCache = loadGooglePlaces().catch((error) => {
+    googlePlacesCache = null;
+    throw error;
+  });
+  return googlePlacesCache;
+}
+
+async function loadGooglePlaces(): Promise<Place[]> {
   const rows: Record<string, unknown>[] = [];
   const pageSize = 1000;
   const maxPages = 100;

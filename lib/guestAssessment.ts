@@ -186,11 +186,14 @@ export async function assessGuestProperty(listingId: string, previous?: GuestAss
   if (!listing) throw new Error("The selected listing is not available.");
   trace("Property facts", { listing_id: listing.id, mode: "guest_assessment", source: "source_description", writes: false });
   const windowIndex = previous ? Number(previous.retrieval_audit.source_window_index ?? 0) + 1 : 0;
-  const reviewData = await retrieveGuestEvidence(listing.id, await getLocalReviewsForListing(listing.id),
+  const [reviews, nearby] = await Promise.all([
+    getLocalReviewsForListing(listing.id),
+    getNearbyEvidence(listing, 8, 2)
+  ]);
+  const reviewData = await retrieveGuestEvidence(listing.id, reviews,
     { windowIndex, evidenceOffset: previous?.evidence.length ?? 0 });
   trace("Review source window", { source_window_index: windowIndex, source_window_count: reviewData.audit.source_window_count,
     available_reviews: reviewData.audit.clean_count, order: "newest_first", semantic_coverage_complete: false });
-  const nearby = await getNearbyEvidence(listing, 8, 2);
   trace("Neighborhood selection", nearby.audit);
   const places = nearby.places.map((place, index) => ({
     id: `p${index + 1}`, name: place.placeName, category: place.category, rating: place.rating,

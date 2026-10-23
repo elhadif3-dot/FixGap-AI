@@ -8,6 +8,23 @@ export type TopicMetric = {
   mentionedReviews: number;
   prevalencePct: number;
   positiveSharePct: number | null;
+  prevalenceRangePct: [number, number];
+};
+
+export type RankedSignal = {
+  id: string;
+  kind: "strength" | "risk" | "momentum" | "expectation" | "neighborhood";
+  title: string;
+  summary: string;
+  score: number;
+  confidence: "high" | "medium" | "low";
+  evidenceCount: number;
+};
+
+export type TimelinePeriod = {
+  period: string;
+  reviewCount: number;
+  signals: Array<{ topicId: string; label: string; positiveRatePct: number; negativeRatePct: number }>;
 };
 
 export type RecurringIssue = {
@@ -42,7 +59,7 @@ export type ExpectationMetric = {
 };
 
 export type GuestDataAnalysis = {
-  version: "guest-data-lab-v1";
+  version: "guest-data-lab-v2";
   listing: { id: string; name: string };
   coverage: {
     reviewsAvailable: number;
@@ -55,14 +72,16 @@ export type GuestDataAnalysis = {
     scope: "full_source_corpus";
   };
   topics: TopicMetric[];
+  rankedSignals: RankedSignal[];
+  timeline: TimelinePeriod[];
   recurringIssues: RecurringIssue[];
   trends: TrendMetric[];
   expectations: ExpectationMetric[];
   nearby: {
     radiusKm: 1;
     placeCount: number;
-    categories: Array<{ category: string; count: number; within500m: number; weightedRating: number | null }>;
-    topPlaces: Array<{ name: string; category: string; rating: number | null; reviews: number; distanceKm: number }>;
+    categories: Array<{ category: string; count: number; within500m: number; weightedRating: number | null; gravityScore: number }>;
+    topPlaces: Array<{ name: string; category: string; rating: number | null; reviews: number; distanceKm: number; signalScore: number }>;
   };
   insights: string[];
   methodology: {
@@ -168,8 +187,8 @@ export function analyzeGuestData(listing: Listing, rawReviews: Review[], places:
     dateFrom: dated.at(-1)?.date ?? null, dateTo: dated[0]?.date ?? null,
     recentReviews: recent.size, historicalReviews: historical.size, scope: "full_source_corpus" as const };
   const result: GuestDataAnalysis = {
-    version: "guest-data-lab-v1", listing: { id: listing.id, name: listing.name }, coverage,
-    topics, recurringIssues, trends, expectations, nearby,
+    version: "guest-data-lab-v2", listing: { id: listing.id, name: listing.name }, coverage,
+    topics, rankedSignals: [], timeline: buildTimeline(reviews, topics.slice(0, 5)), recurringIssues, trends, expectations, nearby,
     insights: [],
     methodology: {
       topicMethod: "Every cleaned source review is scanned once with an explainable multilingual phrase lexicon. Counts are unique reviews, not keyword hits.",
@@ -182,6 +201,7 @@ export function analyzeGuestData(listing: Listing, rawReviews: Review[], places:
       ]
     }
   };
+  result.rankedSignals = buildRankedSignals(result);
   result.insights = buildInsights(result);
   return result;
 }
@@ -212,7 +232,24 @@ function topicMetric(topic: TopicDefinition, reviews: PreparedReview[], denomina
   const mentionedReviews = reviews.filter((review) => review.signals.has(topic.id)).length;
   return { id: topic.id, label: topic.label, positiveReviews, negativeReviews, mentionedReviews,
     prevalencePct: pct(mentionedReviews, denominator),
-    positiveSharePct: mentionedReviews ? pct(positiveReviews, positiveReviews + negativeReviews) : null };
+    positiveSharePct: mentionedReviews ? pct(positiveReviews, positiveReviews + negativeReviews) : null,
+    prevalenceRangePct: wilsonRange(mentionedReviews, denominator) };
+}
+
+function buildTimeline(reviews: PreparedReview[], topics: TopicMetric[]): TimelinePeriod[] {
+  const byMonth = new Map<string, PreparedReview[]>();
+  reviews.filter((review) => review.month).forEach((review) =>
+    byMonth.set(review.month, [...(byMonth.get(review.month) ?? []), review]));
+  return [...byMonth].sort(([a], [b]) => a.localeCompare(b)).slice(-12).map(([period, items]) => ({
+    period,
+    reviewCount: items.length,
+    signals: topics.map((topic) => ({
+      topicId: topic.id,
+      label: topic.label,
+      positiveRatePct: pct(items.filter((review) => review.signals.get(topic.id)?.has("positive")).length, items.length),
+      negativeRatePct: pct(items.filter((review) => review.signals.get(topic.id)?.has("negative")).length, items.length)
+    }))
+  }));
 }
 
 function buildTrends(topics: TopicMetric[], reviews: PreparedReview[], recent: Set<string>, historical: Set<string>): TrendMetric[] {
@@ -260,15 +297,54 @@ function nearbyProfile(places: Place[]): GuestDataAnalysis["nearby"] {
     const rated = items.filter((item) => item.rating !== null && item.numberOfReviews > 0);
     const weight = rated.reduce((sum, item) => sum + Math.log10(item.numberOfReviews + 1), 0);
     const weightedRating = weight ? rated.reduce((sum, item) => sum + (item.rating ?? 0) * Math.log10(item.numberOfReviews + 1), 0) / weight : null;
-    return { category, count: items.length, within500m: items.filter((item) => (item.distanceKm ?? 2) <= 0.5).length,
-      weightedRating: weightedRating === null ? null : round(weightedRating, 2) };
-  }).sort((a, b) => b.count - a.count);
+    const within500m = items.filter((item) => (item.distanceKm ?? 2) <= 0.5).length;
+    const gravityScore = Math.min(100, Math.round(items.reduce((sum, item) => sum + placeScore(item), 0) * 1.5));
+    return { category, count: items.length, within500m,
+      weightedRating: weightedRating === null ? null : round(weightedRating, 2), gravityScore };
+  }).sort((a, b) => b.gravityScore - a.gravityScore || b.count - a.count);
   const topPlaces = [...eligible].filter((place) => place.rating !== null && place.numberOfReviews >= 10)
     .sort((a, b) => placeScore(b) - placeScore(a)).slice(0, 6).map((place) => ({
       name: place.placeName, category: place.category, rating: place.rating, reviews: place.numberOfReviews,
-      distanceKm: round(place.distanceKm ?? 0, 2)
+      distanceKm: round(place.distanceKm ?? 0, 2), signalScore: round(placeScore(place), 1)
     }));
   return { radiusKm: 1, placeCount: eligible.length, categories, topPlaces };
+}
+
+function buildRankedSignals(result: GuestDataAnalysis): RankedSignal[] {
+  const signals: RankedSignal[] = [];
+  for (const topic of result.topics) {
+    const evidence = topic.positiveReviews + topic.negativeReviews;
+    const confidence = evidence >= 20 ? "high" as const : evidence >= 6 ? "medium" as const : "low" as const;
+    if (topic.positiveReviews >= Math.max(3, topic.negativeReviews * 1.5)) {
+      const score = Math.min(100, Math.round(topic.prevalencePct * 3 + (topic.positiveSharePct ?? 0) * 0.45));
+      signals.push({ id: `strength-${topic.id}`, kind: "strength", title: topic.label,
+        summary: `${topic.positiveReviews} positive signals; ${topic.prevalenceRangePct[0]}–${topic.prevalenceRangePct[1]}% estimated prevalence range.`,
+        score, confidence, evidenceCount: topic.positiveReviews });
+    }
+  }
+  for (const issue of result.recurringIssues) {
+    signals.push({ id: `risk-${issue.topicId}`, kind: "risk", title: issue.label,
+      summary: `${issue.negativeReviews} complaints across ${issue.monthsWithIssue} months; recurrence ${issue.recurrenceScore}/100.`,
+      score: issue.recurrenceScore, confidence: issue.confidence, evidenceCount: issue.negativeReviews });
+  }
+  for (const trend of result.trends.filter((item) => item.direction !== "stable").slice(0, 3)) {
+    signals.push({ id: `momentum-${trend.topicId}-${trend.polarity}`, kind: "momentum", title: `${trend.label} momentum`,
+      summary: `${trend.polarity} rate moved ${trend.changePoints > 0 ? "+" : ""}${trend.changePoints} points (${trend.historicalRatePct}% → ${trend.recentRatePct}%).`,
+      score: Math.min(100, Math.round(Math.abs(trend.changePoints) * 5 + Math.min(30, trend.recentCount * 2))),
+      confidence: trend.recentCount + trend.historicalCount >= 15 ? "high" : "medium", evidenceCount: trend.recentCount + trend.historicalCount });
+  }
+  for (const expectation of result.expectations.filter((item) => item.result === "possible_gap" || item.result === "unmentioned_strength")) {
+    const topic = result.topics.find((item) => item.id === expectation.topicId);
+    signals.push({ id: `expectation-${expectation.topicId}`, kind: "expectation", title: expectation.label,
+      summary: expectation.result === "possible_gap" ? "Repeated guest evidence may conflict with an explicit listing promise." : "Guests repeatedly value this, but the listing does not state it explicitly.",
+      score: Math.min(100, Math.round((topic?.prevalencePct ?? 0) * 4 + 35)), confidence: (topic?.mentionedReviews ?? 0) >= 10 ? "high" : "medium",
+      evidenceCount: topic?.mentionedReviews ?? 0 });
+  }
+  const nearby = result.nearby.categories[0];
+  if (nearby) signals.push({ id: `nearby-${nearby.category}`, kind: "neighborhood", title: `${nearby.category} gravity`,
+    summary: `${nearby.count} places within 1 km; ${nearby.within500m} within 500 m; review-weighted rating ${nearby.weightedRating ?? "N/A"}.`,
+    score: nearby.gravityScore, confidence: nearby.count >= 8 ? "high" : nearby.count >= 3 ? "medium" : "low", evidenceCount: nearby.count });
+  return signals.sort((a, b) => b.score - a.score || b.evidenceCount - a.evidenceCount).slice(0, 8);
 }
 
 function placeScore(place: Place): number {
@@ -309,4 +385,14 @@ function pct(value: number, total: number): number {
 function round(value: number, digits: number): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
+}
+
+function wilsonRange(successes: number, total: number): [number, number] {
+  if (!total) return [0, 0];
+  const z = 1.96;
+  const p = successes / total;
+  const denominator = 1 + z * z / total;
+  const center = (p + z * z / (2 * total)) / denominator;
+  const margin = z * Math.sqrt((p * (1 - p) + z * z / (4 * total)) / total) / denominator;
+  return [round(Math.max(0, center - margin) * 100, 1), round(Math.min(1, center + margin) * 100, 1)];
 }

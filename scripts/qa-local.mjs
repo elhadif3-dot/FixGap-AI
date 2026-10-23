@@ -425,7 +425,7 @@ const panelComponent = load("components/GuestAssessmentPanel.tsx", {
 const failedPanelHtml = renderToStaticMarkup(createElement(panelComponent.GuestAssessmentPanel, {
   listingId: "1", sessionId: "qa-debug-session"
 }));
-assert.match(failedPanelHtml, /Update assessment/);
+assert.match(failedPanelHtml, /Analyze next 200 reviews/);
 assert.ok(failedPanelHtml.includes(report.assessment.summary));
 assert.match(failedPanelHtml, /LLM Steps &amp; Debug/);
 assert.match(failedPanelHtml, /Raw API step payload/);

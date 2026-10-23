@@ -19,6 +19,8 @@ FixGap AI examines a prepared Lisbon Airbnb dataset and guest reviews. It reuses
 
 ## Two Agents
 
+The latest full-corpus intelligence architecture, performance measurements, harness execution record, QA evidence, and rollback notes are in [`docs/performance-intelligence-2026-10-23.md`](docs/performance-intelligence-2026-10-23.md).
+
 ### Guest Agent
 
 For someone considering a property, the Guest Agent produces a concise Hebrew assessment: supported strengths and drawbacks, listing-versus-review gaps, guest fit, questions to check before booking, and a neighborhood summary. Findings link to exact guest-review quotations. Nearby venue reviews are kept separate from reviews of the property.

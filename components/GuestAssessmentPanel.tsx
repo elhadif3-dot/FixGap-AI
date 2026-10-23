@@ -64,12 +64,12 @@ export function GuestAssessmentPanel({ listingId, sessionId }: { listingId: stri
   return (
     <section className="guestAssessment" dir="rtl" aria-label="הערכת הנכס לאורח">
       <div className="guestAssessmentHeader">
-        <div><span className="guestEyebrow">FixGap AI</span><h2>Guest Agent</h2></div>
+        <div><span className="guestEyebrow">Optional LLM deep dive</span><h2>Verified semantic brief</h2></div>
         <button className="primaryButton" type="button" disabled={running || Boolean(complete)} onClick={() => void run()}>
-          {running ? "Analyzing..." : complete ? "No more source windows" : result ? "Update assessment" : "Analyze property"}<ArrowRight size={17} />
+          {running ? "Building verified brief..." : complete ? "No more source windows" : result ? "Analyze next 200 reviews" : "Generate semantic brief"}<ArrowRight size={17} />
         </button>
       </div>
-      {running ? <div className="guestProgress" role="status"><span />אוסף עדויות, מנתח ובודק את המסקנות</div> : null}
+      {running ? <div className="guestProgress" role="status"><span />אוסף עדויות, מנתח ובודק את המסקנות. תובנות הדאטה המלאות למעלה כבר זמינות.</div> : null}
       {error ? <p className="guestError" role="alert"><TriangleAlert size={18} />{error}</p> : null}
       {result && assessment ? <>
         <div className="guestReportMeta">
